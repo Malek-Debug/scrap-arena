@@ -1,0 +1,64 @@
+import Phaser from "phaser";
+import type { PlayerStats } from "../core";
+import type { MapObstacles } from "../core/MapObstacles";
+import type { WaveManager } from "../core/WaveManager";
+import type { UpgradeSystem } from "../core/UpgradeSystem";
+import type { ScrapManager } from "../core/ScrapManager";
+import type { ComboSystem } from "../core/ComboSystem";
+import type { AbilitySystem } from "../core/AbilitySystem";
+import type { MissionSystem } from "../core/MissionSystem";
+import type { PowerUpSystem } from "../core/PowerUpSystem";
+import type { WorldManager } from "../core/WorldManager";
+import type { DDASystem } from "../core/DDASystem";
+import type { ArenaHazards } from "../core/ArenaHazards";
+import type { BossAgent } from "../agents/BossAgent";
+import type { EnemyAgent } from "../agents/EnemyAgent";
+import type { GuardAgent } from "../agents/GuardAgent";
+import type { CollectorAgent } from "../agents/CollectorAgent";
+import type { TurretAgent } from "../agents/TurretAgent";
+import type { SawbladeAgent } from "../agents/SawbladeAgent";
+import type { WelderAgent } from "../agents/WelderAgent";
+
+import type { AnyAgent } from "../core";
+
+export type { AnyAgent };
+
+export interface GameContext {
+  scene: Phaser.Scene;
+  playerSprite: Phaser.Physics.Arcade.Sprite;
+  playerHp: number;
+  playerHeat: number;
+  heatOverheatTimer: number;
+  playerStats: PlayerStats;
+  mapObstacles: MapObstacles;
+  waveManager: WaveManager;
+  upgradeSystem: UpgradeSystem;
+  scrapManager: ScrapManager;
+  comboSystem: ComboSystem;
+  abilitySystem: AbilitySystem;
+  missionSystem: MissionSystem;
+  powerUpSystem: PowerUpSystem;
+  worldManager: WorldManager;
+  ddaSystem: DDASystem;
+  arenaHazards: ArenaHazards;
+  enemies: EnemyAgent[];
+  guards: GuardAgent[];
+  collectors: CollectorAgent[];
+  turrets: TurretAgent[];
+  sawblades: SawbladeAgent[];
+  welders: WelderAgent[];
+  allAgents: AnyAgent[];
+  boss: BossAgent | null;
+  enemyGlows: Map<number, Phaser.GameObjects.Arc>;
+  enemyGroup: Phaser.Physics.Arcade.Group;
+  killCount: number;
+  gameOver: boolean;
+  godMode: boolean;
+  playerShielded: boolean;
+  damageTakenThisWave: number;
+  abilityShieldActive: boolean;
+  abilityShieldTimer: number;
+  abilityShieldGfx: Phaser.GameObjects.Arc | null;
+  contactDamageCooldown: number;
+  deathQueue: AnyAgent[];
+}
