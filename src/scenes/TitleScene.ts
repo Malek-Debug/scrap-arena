@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { GAME_WIDTH, GAME_HEIGHT } from "../core";
 import { AudioManager } from "../audio/AudioManager";
+import { WalletManager } from "../web3/WalletManager";
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 const BG         = 0x080412;
@@ -188,12 +189,18 @@ export class TitleScene extends Phaser.Scene {
       fontFamily: '"Courier New", Courier, monospace', fontSize: "10px", color: "#554433",
     }).setOrigin(1, 1).setAlpha(0.6).setDepth(20);
 
+    // ── Wallet connect button (Ethereum challenge) ──
+    this._buildWalletButton();
+
     // ── Keyboard shortcuts ──
     this.input.keyboard!.on("keydown-SPACE", () => this._startGame());
     this.input.keyboard!.on("keydown-ENTER", () => this._startGame());
 
     // ── PostFX ──
     if (!this.scene.isActive("PostFX")) this.scene.launch("PostFX");
+
+    // YouTube Playables: game is fully loaded and ready for interaction
+    if (typeof ytgame !== "undefined") ytgame.game.gameReady();
   }
 
   update(_time: number, delta: number): void {
@@ -366,6 +373,61 @@ export class TitleScene extends Phaser.Scene {
       g.fillStyle(s.color, flicker * 0.9);
       g.fillCircle(s.x, s.y, s.size);
     }
+  }
+
+  private _buildWalletButton(): void {
+    const wallet = WalletManager.instance;
+    if (!WalletManager.isAvailable()) return; // No MetaMask — skip button
+
+    const bx = 14, by = GAME_HEIGHT - 14;
+    const walletBg = this.add.graphics().setDepth(30);
+    const walletTxt = this.add.text(bx + 8, by - 4, "⬡  CONNECT WALLET", {
+      fontFamily: '"Courier New", Courier, monospace', fontSize: "11px",
+      color: "#00ff88", fontStyle: "bold",
+    }).setOrigin(0, 1).setDepth(31);
+
+    const drawWalletBtn = (hover: boolean, connected: boolean) => {
+      walletBg.clear();
+      const label = connected ? wallet.address!.slice(0, 6) + "…" + wallet.address!.slice(-4) : "⬡  CONNECT WALLET";
+      walletTxt.setText(connected ? `✓  ${label}` : label);
+      walletTxt.setColor(connected ? "#00ff88" : hover ? "#ffffff" : "#00cc66");
+      const tw = walletTxt.width + 16, th = 22;
+      walletBg.lineStyle(1, connected ? 0x00ff88 : 0x00cc66, hover || connected ? 0.9 : 0.4);
+      walletBg.fillStyle(0x080412, connected ? 0.95 : 0.7);
+      walletBg.fillRoundedRect(bx, by - th, tw, th, 3);
+      walletBg.strokeRoundedRect(bx, by - th, tw, th, 3);
+    };
+    drawWalletBtn(false, false);
+
+    const hitW = 180, hitH = 26;
+    const hit = this.add.rectangle(bx + hitW / 2, by - hitH / 2, hitW, hitH)
+      .setAlpha(0.001).setInteractive({ useHandCursor: true }).setDepth(32);
+    hit.on("pointerover", () => drawWalletBtn(true, wallet.isConnected));
+    hit.on("pointerout",  () => drawWalletBtn(false, wallet.isConnected));
+    hit.on("pointerdown", async () => {
+      if (wallet.isConnected) return;
+      try {
+        await wallet.connect();
+        drawWalletBtn(false, true);
+        this._showWalletPanel(`Connected: ${wallet.address!.slice(0, 8)}…`);
+      } catch {
+        walletTxt.setText("⬡  WALLET ERROR").setColor("#ff3300");
+      }
+    });
+
+    // Sync button if already connected from a previous scene
+    wallet.on(state => {
+      if (state.status === "connected") drawWalletBtn(false, true);
+    });
+    if (wallet.isConnected) drawWalletBtn(false, true);
+  }
+
+  private _showWalletPanel(message: string): void {
+    const panel = document.getElementById("wallet-panel");
+    if (!panel) return;
+    panel.innerHTML = `<div>${message}</div>`;
+    panel.classList.add("visible");
+    setTimeout(() => panel.classList.remove("visible"), 5000);
   }
 
   private _startGame(): void {

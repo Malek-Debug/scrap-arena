@@ -8,4 +8,19 @@ import { VictoryScene } from "./scenes/VictoryScene";
 import { PostFXScene } from "./rendering/PostFXScene";
 
 const config = createGameConfig([PreloaderScene, TitleScene, MainScene, GameOverScene, VictoryScene, PostFXScene]);
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+
+// YouTube Playables SDK hooks — safe no-op outside of YouTube
+if (typeof ytgame !== "undefined") {
+  ytgame.system.onPause(() => {
+    game.sound.pauseAll();
+    game.scene.scenes.forEach(s => { if (s.scene.isActive()) s.scene.pause(); });
+  });
+  ytgame.system.onResume(() => {
+    game.sound.resumeAll();
+    game.scene.scenes.forEach(s => { if (s.scene.isPaused()) s.scene.resume(); });
+  });
+  ytgame.system.onAudioVolumeChange(({ volume }) => {
+    game.sound.volume = volume;
+  });
+}

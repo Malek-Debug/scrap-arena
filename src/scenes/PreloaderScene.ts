@@ -15,6 +15,9 @@ export class PreloaderScene extends Phaser.Scene {
   }
 
   preload(): void {
+    // YouTube Playables: signal that we've rendered the first loading frame
+    if (typeof ytgame !== "undefined") ytgame.game.firstFrameReady();
+
     const { width, height } = this.cameras.main;
     const barW = width * 0.5;
     const barH = 16;

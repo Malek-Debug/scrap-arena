@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { GAME_WIDTH, GAME_HEIGHT } from "../core";
 import { AudioManager } from "../audio/AudioManager";
+import { WalletManager } from "../web3/WalletManager";
 
 const C_RED    = 0xff2200;
 const C_ORANGE = 0xff5500;
@@ -48,6 +49,16 @@ export class GameOverScene extends Phaser.Scene {
     const top3 = saved.slice(0, 3);
     localStorage.setItem("scrapArenaLeaders", JSON.stringify(top3));
     const isNewRecord = score > prevBest && score > 0;
+
+    // YouTube Playables: submit score
+    if (typeof ytgame !== "undefined") {
+      ytgame.engagement.sendScore({ value: score });
+    }
+
+    // Ethereum: sign score if wallet connected
+    if (WalletManager.instance.isConnected) {
+      WalletManager.instance.signScore(score, wave).catch(() => { /* silent */ });
+    }
 
     // Grade
     const gradeScore = score + wave * 500 + kills * 20 + maxCombo * 100;
@@ -244,9 +255,12 @@ export class GameOverScene extends Phaser.Scene {
     });
 
     // ── 10. Buttons ──
-    const btnY = GAME_HEIGHT - 86;
+    const btnY = GAME_HEIGHT - 100;
     this._buildButton(cx - 190, btnY, "▶  RETRY", C_RED, H_RED, "#ff8888", 600, () => this._retry());
     this._buildButton(cx + 190, btnY, "⌂  MAIN MENU", C_ORANGE, H_ORANGE, "#ffcc88", 750, () => this._mainMenu());
+
+    // Wallet sign score (Ethereum challenge)
+    this._buildWalletSignButton(cx, btnY + 50, score, wave);
 
     // ── 11. Bottom status bar ──
     const barGfx = this.add.graphics().setDepth(5);
@@ -292,6 +306,42 @@ export class GameOverScene extends Phaser.Scene {
       this.time.delayedCall(32, tick);
     };
     this.time.delayedCall(delay, tick);
+  }
+
+  private _buildWalletSignButton(x: number, y: number, score: number, wave: number): void {
+    const wallet = WalletManager.instance;
+    const bg = this.add.graphics().setDepth(10);
+    const txt = this.add.text(x, y,
+      wallet.isConnected ? "⬡  SIGN SCORE ON-CHAIN" : "⬡  CONNECT & SIGN SCORE",
+      { fontFamily: "monospace", fontSize: "12px", color: wallet.isConnected ? "#00ff88" : "#ff8800" }
+    ).setOrigin(0.5).setDepth(11);
+
+    const draw = (hover: boolean, done: boolean) => {
+      bg.clear();
+      const col = done ? 0x00ff88 : 0xff8800;
+      bg.fillStyle(0x160000, 0.85); bg.lineStyle(1, col, hover || done ? 0.9 : 0.3);
+      const W = 280, H = 28;
+      bg.fillRoundedRect(x - W / 2, y - H / 2, W, H, 3);
+      bg.strokeRoundedRect(x - W / 2, y - H / 2, W, H, 3);
+    };
+    draw(false, wallet.isConnected);
+
+    const hit = this.add.rectangle(x, y, 280, 28).setAlpha(0.001)
+      .setInteractive({ useHandCursor: true }).setDepth(12);
+    hit.on("pointerover", () => draw(true, wallet.isConnected));
+    hit.on("pointerout",  () => draw(false, wallet.isConnected));
+    hit.on("pointerdown", async () => {
+      try {
+        if (!wallet.isConnected) await wallet.connect();
+        txt.setText("⬡  SIGNING…").setColor("#ffaa00");
+        await wallet.signScore(score, wave);
+        txt.setText("✓  SCORE SIGNED!").setColor("#00ff88");
+        draw(false, true);
+        hit.disableInteractive();
+      } catch {
+        txt.setText("✗  SIGN FAILED").setColor("#ff3300");
+      }
+    });
   }
 
   private _buildButton(x: number, y: number, label: string, borderCol: number, borderHex: string, hoverHex: string, delay: number, onClick: () => void): void {
