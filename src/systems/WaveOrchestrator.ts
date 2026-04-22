@@ -39,6 +39,12 @@ export class WaveOrchestrator {
   private deps: WaveOrchestratorDeps;
   currentWaveEvent: WaveEvent | null = null;
 
+  // Room in which the CURRENT wave is committed to spawn. Captured at the moment
+  // `_tryTriggerWave` fires so enemies spawn in the room the player actually
+  // entered, not wherever they happen to be 3s later when the wave card clears.
+  private _pendingSpawnCol: number | null = null;
+  private _pendingSpawnRow: number | null = null;
+
   constructor(ctx: GameContext, deps: WaveOrchestratorDeps) {
     this.ctx = ctx;
     this.deps = deps;
@@ -86,30 +92,32 @@ export class WaveOrchestrator {
       this._spawnPortalFX(x, y, 0xff4444, i * 60);
     }
 
+    const reactorPos = ctx.mapObstacles.reactorMachinePos;
+
     for (let i = 0; i < scaledGuardCount; i++) {
-      const { x, y } = this._randomEdgePosition();
-      const agent = new GuardAgent(x, y, ctx.playerSprite, scaledHp + 20, scaledSpeed - 10);
-      const sprite = ctx.scene.physics.add.sprite(x, y, "guard")
+      const { x: gx, y: gy } = this._randomEdgePosition();
+      const agent = new GuardAgent(gx, gy, ctx.playerSprite, scaledHp + 20, scaledSpeed - 10);
+      const sprite = ctx.scene.physics.add.sprite(gx, gy, "guard")
         .setCollideWorldBounds(true).setDepth(50).setAlpha(0).setScale(1.15);
       agent.bindSprite(sprite);
       ctx.enemyGroup.add(sprite);
       ctx.guards.push(agent);
-      const gg = ctx.scene.add.circle(x, y, 14, 0xaa44ff, 0.25).setDepth(49).setBlendMode(Phaser.BlendModes.ADD);
+      const gg = ctx.scene.add.circle(gx, gy, 14, 0xaa44ff, 0.25).setDepth(49).setBlendMode(Phaser.BlendModes.ADD);
       ctx.enemyGlows.set(agent.id, gg);
-      this._spawnPortalFX(x, y, 0xaa44ff, i * 80);
+      this._spawnPortalFX(gx, gy, 0xaa44ff, i * 80);
     }
 
     for (let i = 0; i < scaledCollectorCount; i++) {
-      const { x, y } = this._randomEdgePosition();
-      const agent = new CollectorAgent(x, y, ctx.playerSprite, 30, scaledSpeed + 20);
-      const sprite = ctx.scene.physics.add.sprite(x, y, "collector")
+      const { x: cx, y: cy } = this._randomEdgePosition();
+      const agent = new CollectorAgent(cx, cy, ctx.playerSprite, 30, scaledSpeed + 20);
+      const sprite = ctx.scene.physics.add.sprite(cx, cy, "collector")
         .setCollideWorldBounds(true).setDepth(50).setAlpha(0).setScale(0.85);
       agent.bindSprite(sprite);
       ctx.enemyGroup.add(sprite);
       ctx.collectors.push(agent);
-      const cg = ctx.scene.add.circle(x, y, 12, 0x44ffcc, 0.25).setDepth(49).setBlendMode(Phaser.BlendModes.ADD);
+      const cg = ctx.scene.add.circle(cx, cy, 12, 0x44ffcc, 0.25).setDepth(49).setBlendMode(Phaser.BlendModes.ADD);
       ctx.enemyGlows.set(agent.id, cg);
-      this._spawnPortalFX(x, y, 0x44ffcc, i * 70);
+      this._spawnPortalFX(cx, cy, 0x44ffcc, i * 70);
     }
 
     for (let i = 0; i < scaledTurretCount; i++) {
@@ -141,17 +149,17 @@ export class WaveOrchestrator {
     }
 
     for (let i = 0; i < scaledWelderCount; i++) {
-      const { x, y } = this._randomEdgePosition();
-      const agent = new WelderAgent(x, y, ctx.playerSprite, 30 + ctx.waveManager.currentWave * 3);
+      const { x: wx, y: wy } = this._randomEdgePosition();
+      const agent = new WelderAgent(wx, wy, ctx.playerSprite, 30 + ctx.waveManager.currentWave * 3);
       agent.bindScene(ctx.scene);
-      const sprite = ctx.scene.physics.add.sprite(x, y, "welder")
+      const sprite = ctx.scene.physics.add.sprite(wx, wy, "welder")
         .setCollideWorldBounds(true).setDepth(50).setAlpha(0);
       agent.bindSprite(sprite);
       ctx.enemyGroup.add(sprite);
       ctx.welders.push(agent);
-      const wg = ctx.scene.add.circle(x, y, 12, 0xffcc00, 0.25).setDepth(49).setBlendMode(Phaser.BlendModes.ADD);
+      const wg = ctx.scene.add.circle(wx, wy, 12, 0xffcc00, 0.25).setDepth(49).setBlendMode(Phaser.BlendModes.ADD);
       ctx.enemyGlows.set(agent.id, wg);
-      this._spawnPortalFX(x, y, 0xffcc00, i * 85);
+      this._spawnPortalFX(wx, wy, 0xffcc00, i * 85);
     }
 
     ctx.allAgents = [
@@ -165,6 +173,47 @@ export class WaveOrchestrator {
       angles.forEach((a, i) => { ctx.enemies[i].flankAngle = a; });
     }
 
+    // ── REACTOR ASSAULT — CIRCUIT world enemies surround and destroy the reactor ──
+    // Guards blockade in a tight siege ring. Welders + collectors swarm from spread angles.
+    if (reactorPos) {
+      // Guards: hold siege positions in a ring — they're already IN the reactor room
+      for (let i = 0; i < ctx.guards.length; i++) {
+        const agent = ctx.guards[i];
+        const angle = (i / Math.max(ctx.guards.length, 1)) * Math.PI * 2;
+        agent.reactorTarget = {
+          x: reactorPos.x + Math.cos(angle) * 65,
+          y: reactorPos.y + Math.sin(angle) * 65,
+        };
+        if (agent.sprite) agent.sprite.setTint(0xcc44ff);
+        const glow = ctx.enemyGlows.get(agent.id);
+        if (glow) glow.setFillStyle(0xcc44ff, 0.55);
+      }
+      // Welders: approach from evenly spread angles, heal allies while rushing
+      for (let i = 0; i < ctx.welders.length; i++) {
+        const agent = ctx.welders[i];
+        const angle = (i / Math.max(ctx.welders.length, 1)) * Math.PI * 2 + Math.PI / 4;
+        agent.reactorTarget = {
+          x: reactorPos.x + Math.cos(angle) * 45,
+          y: reactorPos.y + Math.sin(angle) * 45,
+        };
+        if (agent.sprite) agent.sprite.setTint(0xffcc00);
+        const glow = ctx.enemyGlows.get(agent.id);
+        if (glow) glow.setFillStyle(0xffcc00, 0.50);
+      }
+      // Collectors: fast drones swarm from different spread angles
+      for (let i = 0; i < ctx.collectors.length; i++) {
+        const agent = ctx.collectors[i];
+        const angle = (i / Math.max(ctx.collectors.length, 1)) * Math.PI * 2 + Math.PI / 6;
+        agent.reactorTarget = {
+          x: reactorPos.x + Math.cos(angle) * 35,
+          y: reactorPos.y + Math.sin(angle) * 35,
+        };
+        if (agent.sprite) agent.sprite.setTint(0x44ddff);
+        const glow = ctx.enemyGlows.get(agent.id);
+        if (glow) glow.setFillStyle(0x44ddff, 0.50);
+      }
+    }
+
     const allHealTargets = ctx.allAgents as { posX: number; posY: number; hp: number; maxHp: number }[];
     for (const welder of ctx.welders) {
       welder.setAllies(allHealTargets);
@@ -175,16 +224,13 @@ export class WaveOrchestrator {
     const ctx = this.ctx;
     const wave = ctx.waveManager.currentWave;
     const bossHp = 500 + wave * 100;
-    const px = ctx.playerSprite?.x ?? CELL_W / 2;
-    const py = ctx.playerSprite?.y ?? CELL_H / 2;
-    const col = Math.floor(px / CELL_W);
-    const row = Math.floor(py / CELL_H);
-    const roomLeft   = col * CELL_W + 80;
-    const roomRight  = (col + 1) * CELL_W - 80;
-    const roomTop    = row * CELL_H + 80;
-    const roomBottom = (row + 1) * CELL_H - 80;
-    const bx = Phaser.Math.Clamp(px, roomLeft, roomRight);
-    const by = Phaser.Math.Clamp(py - 200, roomTop, roomBottom);
+
+    // Boss and player both go to the arena at world centre.
+    // Spawn boss at the top of the arena; player at the centre.
+    const arenaX = WORLD_WIDTH / 2;
+    const arenaY = WORLD_HEIGHT / 2;
+    const bx = arenaX;
+    const by = arenaY - 280;   // top portion of the arena, well inside the walls
 
     const boss = new BossAgent(bx, by, ctx.playerSprite, bossHp);
     boss.bindScene(ctx.scene);
@@ -199,10 +245,12 @@ export class WaveOrchestrator {
       .setDepth(49).setBlendMode(Phaser.BlendModes.ADD);
     ctx.enemyGlows.set(boss.id, glow);
 
+    // Boss uses the centre arena regardless of which room triggered the fight.
+    // Clear the pending spawn lock so the NEXT non-boss wave re-captures freshly.
+    this._pendingSpawnCol = null;
+    this._pendingSpawnRow = null;
     this.deps.hudManager.buildBossUI(wave, this._getBossName(wave));
 
-    const arenaX = WORLD_WIDTH / 2;
-    const arenaY = WORLD_HEIGHT / 2;
     ctx.playerSprite.setPosition(arenaX, arenaY);
     const playerBody = ctx.playerSprite.body as Phaser.Physics.Arcade.Body;
     playerBody.reset(arenaX, arenaY);
@@ -312,8 +360,15 @@ export class WaveOrchestrator {
     // Fire narrative wave clear for boss wave too
     this.deps.onNarrativeWaveClear?.(ctx.waveManager.currentWave);
     ctx.mapObstacles.setupForWave(ctx.waveManager.currentWave + 1, ctx.upgradeSystem.unlockedThemes);
-    ctx.playerSprite.setPosition(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
-    ctx.scene.cameras.main.centerOn(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+    // Drop the player into the HUB ROOM (row 1, col 0). The previous fix used
+    // WORLD_WIDTH/2 which lands in the *void* between rooms — the layout only
+    // activates a single hub cell at [1][0], not the whole middle row.
+    const hubX = CELL_W * 0.5;   // col 0 centre  ≈ 640
+    const hubY = CELL_H * 1.5;   // row 1 centre  ≈ 1080
+    ctx.playerSprite.setPosition(hubX, hubY);
+    const pBody = ctx.playerSprite.body as Phaser.Physics.Arcade.Body | null;
+    pBody?.reset(hubX, hubY);
+    ctx.scene.cameras.main.centerOn(hubX, hubY);
     ctx.scene.time.delayedCall(2500, () => {
       if (!ctx.gameOver) {
         this.deps.onShowStoryHint?.("◉ BOSS DEFEATED  •  press [B] for shop  •  move to next room", 5000);
@@ -321,8 +376,17 @@ export class WaveOrchestrator {
     });
   }
 
-  startNextWaveAfterRest(): void {
+  startNextWaveAfterRest(spawnCol?: number, spawnRow?: number): void {
     const ctx = this.ctx;
+    // Lock the spawn room at trigger time. If the caller didn't pass one (legacy
+    // paths, boss-wave auto-advance) we fall back to the player's current cell.
+    if (typeof spawnCol === "number" && typeof spawnRow === "number") {
+      this._pendingSpawnCol = spawnCol;
+      this._pendingSpawnRow = spawnRow;
+    } else {
+      this._pendingSpawnCol = Math.floor((ctx.playerSprite?.x ?? WORLD_WIDTH / 2) / CELL_W);
+      this._pendingSpawnRow = Math.floor((ctx.playerSprite?.y ?? WORLD_HEIGHT / 2) / CELL_H);
+    }
     const nextWave = ctx.waveManager.currentWave + 1;
     this.currentWaveEvent = ctx.waveManager.getWaveEvent(nextWave);
     const isBossWave = nextWave % 5 === 0;
@@ -392,22 +456,60 @@ export class WaveOrchestrator {
       AudioManager.instance.explosion();
     }
 
-    ctx.scene.time.delayedCall(3000, () => {
-      if (ctx.gameOver) return;
-      ctx.waveManager.startWave();
-      this.spawnWaveEnemies();
-      this.deps.fractureFX?.onWaveStart(ctx.waveManager.currentWave);
+    if (isBossWave) {
+      // For boss waves: fade the screen out, rebuild the arena + teleport the player
+      // during the blackout, then fade back in. This prevents a visible freeze caused
+      // by the synchronous _layoutBossArena() call.
+      ctx.scene.time.delayedCall(2800, () => {
+        if (ctx.gameOver) return;
+        ctx.scene.cameras.main.fadeOut(500, 0, 0, 0);
+        ctx.scene.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+          if (ctx.gameOver) return;
+          try {
+            ctx.waveManager.startWave();
+            this.spawnWaveEnemies();
+            this.deps.fractureFX?.onWaveStart(ctx.waveManager.currentWave);
 
-      const wave = ctx.waveManager.currentWave;
-      waveText.setText(`── WAVE ${wave} ──`);
-      waveText.setAlpha(1).setScale(1.2);
-      ctx.scene.tweens.add({
-        targets: waveText,
-        alpha: 0, scaleX: 0.8, scaleY: 0.8,
-        duration: 800, delay: 1200, ease: "Power2",
+            const wave = ctx.waveManager.currentWave;
+            waveText.setText(`── WAVE ${wave} ──`);
+            waveText.setAlpha(0).setScale(1.2);
+          } catch (e) {
+            console.error("[WaveOrchestrator] boss wave spawn failed:", e);
+          }
+
+          ctx.scene.cameras.main.fadeIn(700, 0, 0, 0);
+          ctx.scene.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_IN_COMPLETE, () => {
+            ctx.scene.tweens.add({
+              targets: waveText, alpha: 1, duration: 300,
+              onComplete: () => {
+                ctx.scene.tweens.add({
+                  targets: waveText, alpha: 0, scaleX: 0.8, scaleY: 0.8,
+                  duration: 800, delay: 1200, ease: "Power2",
+                });
+              },
+            });
+            Juice.screenShake(ctx.scene, 0.004, 100);
+          });
+        });
       });
-      Juice.screenShake(ctx.scene, 0.004, 100);
-    });
+    } else {
+      ctx.scene.time.delayedCall(3000, () => {
+        if (ctx.gameOver) return;
+        ctx.waveManager.startWave();
+        this.spawnWaveEnemies();
+        this.deps.fractureFX?.onWaveStart(ctx.waveManager.currentWave);
+
+        const wave = ctx.waveManager.currentWave;
+        waveText.setText(`── WAVE ${wave} ──`);
+        waveText.setAlpha(1).setScale(1.2);
+        ctx.scene.tweens.add({
+          targets: waveText,
+          alpha: 0, scaleX: 0.8, scaleY: 0.8,
+          duration: 800, delay: 1200, ease: "Power2",
+        });
+        Juice.screenShake(ctx.scene, 0.004, 100);
+      });
+    }
   }
 
   /**
@@ -419,6 +521,7 @@ export class WaveOrchestrator {
     if (ctx.boss) return false;
     if (
       ctx.enemies.length > 0 || ctx.guards.length > 0 ||
+      ctx.collectors.length > 0 ||
       ctx.turrets.length > 0 || ctx.sawblades.length > 0 ||
       ctx.welders.length > 0
     ) return false;
@@ -436,15 +539,21 @@ export class WaveOrchestrator {
     }
     // Fire narrative wave clear dialogue
     this.deps.onNarrativeWaveClear?.(ctx.waveManager.currentWave);
-    ctx.mapObstacles.setupForWave(ctx.waveManager.currentWave + 1, ctx.upgradeSystem.unlockedThemes);
-    this.deps.onShowStoryHint?.("◉ WAVE CLEARED  •  press [B] for shop  •  move to a new room to continue", 5000);
+    // Only pre-build the next wave map for non-boss waves.
+    // Boss waves are heavy (full arena rebuild) and must be deferred to spawn time
+    // to avoid a synchronous freeze at the end of wave 4/9/14/…
+    const nextWave = ctx.waveManager.currentWave + 1;
+    if (nextWave % 5 !== 0) {
+      ctx.mapObstacles.setupForWave(nextWave, ctx.upgradeSystem.unlockedThemes);
+    }
+    this.deps.onShowStoryHint?.("◉ WAVE CLEARED — rest, explore, [B] shop  •  next wave in ~12s", 6000);
     return true;
   }
 
   private _autoUnlockNextRoom(): void {
     const ctx = this.ctx;
-    // Unlock order matches room progression: CMD → Bio Lab → Data Lab → Quarantine → Supply → Vault
-    const CYCLE = ["control", "factory", "server", "armory", "quarantine", "maintenance", "vault"];
+    // Unlock order: CMD CENTER → Bio Lab → Data Lab → Quarantine → Supply → Vault
+    const CYCLE = ["control", "factory", "server", "quarantine", "maintenance", "vault"];
     const ROOM_NAMES: Record<string, string> = {
       factory: "BIO LAB", server: "DATA LAB",
       control: "CMD CENTER", maintenance: "SUPPLY DEPOT",
@@ -462,9 +571,14 @@ export class WaveOrchestrator {
 
   private _randomEdgePosition(): { x: number; y: number } {
     const ctx = this.ctx;
-    const px = ctx.playerSprite?.x ?? WORLD_WIDTH / 2;
-    const py = ctx.playerSprite?.y ?? WORLD_HEIGHT / 2;
-    return ctx.mapObstacles.getSpawnPositionInPlayerRoom(px, py, 200);
+    // Use the LOCKED spawn room (from startNextWaveAfterRest) so enemies appear
+    // in the room the player committed to — not wherever the player wandered.
+    const col = this._pendingSpawnCol;
+    const row = this._pendingSpawnRow;
+    const anchorX = col != null ? col * CELL_W + CELL_W / 2 : (ctx.playerSprite?.x ?? WORLD_WIDTH / 2);
+    const anchorY = row != null ? row * CELL_H + CELL_H / 2 : (ctx.playerSprite?.y ?? WORLD_HEIGHT / 2);
+    const isTutorial = this.deps.getStoryPhase?.() === "tutorial";
+    return ctx.mapObstacles.getSpawnPositionInPlayerRoom(anchorX, anchorY, 120, isTutorial);
   }
 
   private _spawnPortalFX(x: number, y: number, color: number, delay: number): void {

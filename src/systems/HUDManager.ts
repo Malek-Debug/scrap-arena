@@ -49,6 +49,18 @@ export class HUDManager {
   private bossHpBar: Phaser.GameObjects.Rectangle | null = null;
   private bossHpBarBg: Phaser.GameObjects.Rectangle | null = null;
   private bossNameText: Phaser.GameObjects.Text | null = null;
+  // Smoothed "ghost" chip behind the live bar — shows damage taken in last beat
+  private bossHpGhost: Phaser.GameObjects.Rectangle | null = null;
+  private bossHpPhaseTicks: Phaser.GameObjects.Graphics | null = null;
+  private _bossLastPct = 1;
+
+  // Reactor HP bar (always visible)
+  private reactorHpBar: Phaser.GameObjects.Rectangle | null = null;
+  private reactorHpBarBg: Phaser.GameObjects.Rectangle | null = null;
+  private reactorHpGhost: Phaser.GameObjects.Rectangle | null = null;
+  private reactorHpLabel: Phaser.GameObjects.Text | null = null;
+  private _reactorLastPct = 1;
+  private _reactorFlashTimer = 0;
 
   // Rate-limit state
   private _hpBarFrameSkip = 0;
@@ -72,60 +84,80 @@ export class HUDManager {
     const scene = this.ctx.scene;
     const pal = this.ctx.worldManager.palette;
 
-    // Decorative background behind HP/Heat bars
-    scene.add.rectangle(112, GAME_HEIGHT - 15, 228, 40, 0x000000, 0.65)
-      .setOrigin(0.5).setScrollFactor(0).setDepth(99);
+    // ── PLAYER HP / HEAT panel (bottom-left) ──────────────────────────────────
+    // Styled backing panel — fixed size to frame the HP+heat bars cleanly
+    scene.add.rectangle(6, GAME_HEIGHT - 56, 268, 58, 0x050510, 0.92)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(99);
+    scene.add.rectangle(6, GAME_HEIGHT - 56, 268, 58, 0x000000, 0)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(99)
+      .setStrokeStyle(1, 0x00ff8844, 1);
+    // Left accent bar
+    scene.add.rectangle(6, GAME_HEIGHT - 56, 3, 50, 0x00ff88, 0.6)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(100);
 
+    // HP bar — 248px wide, 18px tall
+    const hpBarW = 248;
     this.hpBarBg = scene.add
-      .rectangle(12, GAME_HEIGHT - 24, 200, 16, 0x440000)
+      .rectangle(14, GAME_HEIGHT - 42, hpBarW, 18, 0x110808)
       .setOrigin(0, 0.5).setScrollFactor(0).setDepth(100);
     this.hpBar = scene.add
-      .rectangle(12, GAME_HEIGHT - 24, 200, 16, 0x00ff44)
+      .rectangle(14, GAME_HEIGHT - 42, hpBarW, 18, 0x00ff44)
       .setOrigin(0, 0.5).setScrollFactor(0).setDepth(101);
+    scene.add.text(16, GAME_HEIGHT - 42, "HP", {
+      fontFamily: "monospace", fontSize: "10px", color: "#001a08", fontStyle: "bold",
+    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(102);
 
-    scene.add.text(12, GAME_HEIGHT - 44, "HP", {
-      fontFamily: "monospace", fontSize: "11px", color: "#00ff88",
-    }).setScrollFactor(0).setDepth(100);
-
+    // Heat bar — 248px wide, 10px tall
     this.heatBarBg = scene.add
-      .rectangle(12, GAME_HEIGHT - 6, 200, 10, 0x330a00)
+      .rectangle(14, GAME_HEIGHT - 18, hpBarW, 10, 0x110500)
       .setOrigin(0, 0.5).setScrollFactor(0).setDepth(100);
     this.heatBar = scene.add
-      .rectangle(12, GAME_HEIGHT - 6, 0, 10, 0xff4400)
+      .rectangle(14, GAME_HEIGHT - 18, 0, 10, 0xff4400)
       .setOrigin(0, 0.5).setScrollFactor(0).setDepth(101);
-    this.heatLabel = scene.add.text(216, GAME_HEIGHT - 6, "HEAT", {
+    this.heatLabel = scene.add.text(14 + hpBarW + 5, GAME_HEIGHT - 18, "HEAT", {
       fontFamily: "monospace", fontSize: "9px", color: "#ff6600",
     }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(101);
 
-    this.hudText = scene.add.text(8, 8, "", {
-      fontSize: "13px", color: "#00ff88",
+    // ── TOP-LEFT info block ────────────────────────────────────────────────────
+    // Left accent bar (visual anchor for the HUD block)
+    scene.add.rectangle(4, 4, 4, 56, 0x00ff88, 0.55)
+      .setOrigin(0, 0).setScrollFactor(0).setDepth(100);
+    this.hudText = scene.add.text(14, 6, "", {
+      fontSize: "12px", color: "#00ff88",
       fontFamily: "monospace",
-      backgroundColor: "#00000088",
-      padding: { x: 6, y: 4 },
+      backgroundColor: "#05050e",
+      padding: { x: 10, y: 7 },
     }).setScrollFactor(0).setDepth(100);
 
+    // ── Wave announce (centre screen) ─────────────────────────────────────────
     this._waveText = scene.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 60, "", {
-      fontFamily: "monospace", fontSize: "36px",
+      fontFamily: "monospace", fontSize: "42px",
       color: "#00ff88", fontStyle: "bold",
-      stroke: "#003311", strokeThickness: 3,
+      stroke: "#001a08", strokeThickness: 5,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(110).setAlpha(0);
 
+    // ── World switch cooldown arc ──────────────────────────────────────────────
     this.worldSwitchArc = scene.add.graphics().setScrollFactor(0).setDepth(106);
 
-    this._waveIndicator = scene.add.text(GAME_WIDTH / 2, 8, "WAVE 1", {
-      fontFamily: "monospace", fontSize: "12px", color: "#00ff88",
-      backgroundColor: "#00000088", padding: { x: 8, y: 4 },
+    // ── Wave indicator (top-centre) ───────────────────────────────────────────
+    scene.add.rectangle(GAME_WIDTH / 2, 22, 200, 32, 0x000000, 0.78)
+      .setOrigin(0.5).setScrollFactor(0).setDepth(104)
+      .setStrokeStyle(1, 0x00ff8855, 1);
+    this._waveIndicator = scene.add.text(GAME_WIDTH / 2, 22, "WAVE 1", {
+      fontFamily: "monospace", fontSize: "14px", color: "#00ff88",
       fontStyle: "bold",
-    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(105);
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(105);
 
-    this._narrativeLabel = scene.add.text(GAME_WIDTH / 2, 28, "", {
+    this._narrativeLabel = scene.add.text(GAME_WIDTH / 2, 42, "", {
       fontFamily: "monospace", fontSize: "9px", color: "#88aacc",
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(105).setAlpha(0.7);
 
+    // ── Watermark ────────────────────────────────────────────────────────────
     scene.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 2, "SCRAP ARENA: THE FRACTURE", {
-      fontFamily: "monospace", fontSize: "9px", color: "#ffffff22",
+      fontFamily: "monospace", fontSize: "9px", color: "#ffffff18",
     }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(99);
 
+    // ── Shop button ───────────────────────────────────────────────────────────
     const shopBtn = scene.add.text(GAME_WIDTH - 12, 8, "[B] SHOP", {
       fontFamily: "monospace", fontSize: "13px", color: "#ffcc00",
       backgroundColor: "#00000099", padding: { x: 8, y: 4 },
@@ -142,6 +174,7 @@ export class HUDManager {
 
     this.lowHpOverlay = scene.add.graphics().setScrollFactor(0).setDepth(150);
 
+    // ── Ability hotkey strip (bottom-left above HP bar) ───────────────────────
     this.abilityHudGfx = scene.add.graphics().setScrollFactor(0).setDepth(101);
     const abilityDefs = [
       { key: "E", label: "NOVA",   color: 0x00ffff },
@@ -151,25 +184,51 @@ export class HUDManager {
     ];
     this.abilityHudTexts = [];
     for (let i = 0; i < 4; i++) {
-      const tx = 12 + i * 62;
-      const ty = GAME_HEIGHT - 56;
+      const tx = 12 + i * 66;
+      const ty = GAME_HEIGHT - 68;
       const t = scene.add.text(tx, ty, `[${abilityDefs[i].key}] ${abilityDefs[i].label}`, {
-        fontFamily: "monospace", fontSize: "9px",
+        fontFamily: "monospace", fontSize: "10px",
         color: `#${abilityDefs[i].color.toString(16).padStart(6, "0")}`,
       }).setScrollFactor(0).setDepth(102);
       this.abilityHudTexts.push(t);
     }
 
-    // World label (top-right)
-    this.worldLabel = scene.add.text(GAME_WIDTH - 12, 8, `[Q] ${pal.label}`, {
-      fontFamily: "monospace", fontSize: "14px",
+    // ── World label (top-right, below shop button) ────────────────────────────
+    scene.add.rectangle(GAME_WIDTH - 12, 36, 160, 28, 0x000000, 0.80)
+      .setOrigin(1, 0.5).setScrollFactor(0).setDepth(104)
+      .setStrokeStyle(1, 0xff884455, 1);
+    this.worldLabel = scene.add.text(GAME_WIDTH - 88, 36, `[Q] ${pal.label}`, {
+      fontFamily: "monospace", fontSize: "13px",
       color: "#ff8844", fontStyle: "bold",
-      backgroundColor: "#00000088",
-      padding: { x: 6, y: 4 },
-    }).setOrigin(1, 0).setScrollFactor(0).setDepth(105);
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(105);
 
     // Breach ring VFX layer
     this.breachGfx = scene.add.graphics().setDepth(56).setBlendMode(Phaser.BlendModes.ADD);
+
+    // ── REACTOR HP BAR — prominent right-side panel ───────────────────────────
+    const rBarX = GAME_WIDTH - 218;
+    const rBarY = 74;
+    const rBarW = 206;
+    scene.add.rectangle(GAME_WIDTH - 8, rBarY, rBarW + 16, 48, 0x000000, 0.85)
+      .setOrigin(1, 0.5).setScrollFactor(0).setDepth(99)
+      .setStrokeStyle(2, 0x00ff8844, 1);
+    this.reactorHpLabel = scene.add.text(rBarX, rBarY - 14, "⚡ REACTOR CORE", {
+      fontFamily: "monospace", fontSize: "11px", color: "#00ff88", fontStyle: "bold",
+    }).setScrollFactor(0).setDepth(102);
+    this.reactorHpBarBg = scene.add.rectangle(rBarX, rBarY + 4, rBarW, 16, 0x001a00)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(100);
+    this.reactorHpGhost = scene.add.rectangle(rBarX, rBarY + 4, rBarW, 16, 0x886622, 0.7)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(100);
+    this.reactorHpBar = scene.add.rectangle(rBarX, rBarY + 4, rBarW, 16, 0x00ff88)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(101);
+    scene.add.text(rBarX + rBarW + 4, rBarY + 4, "HP", {
+      fontFamily: "monospace", fontSize: "9px", color: "#00ff4466",
+    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(101);
+
+    // Patch reactorHpBarBg width to match rBarW
+    this.reactorHpBarBg.width = rBarW;
+    this.reactorHpGhost!.width = rBarW;
+    this.reactorHpBar!.width = rBarW;
 
     this._showTutorialHint();
   }
@@ -179,11 +238,11 @@ export class HUDManager {
     const scene = ctx.scene;
 
     const hpRatio = ctx.playerHp / ctx.playerStats.maxHp;
-    this.hpBar.width = 200 * hpRatio;
+    this.hpBar.width = 248 * hpRatio;
     this.hpBar.setFillStyle(hpRatio > 0.5 ? 0x00ff44 : hpRatio > 0.25 ? 0xffaa00 : 0xff2200);
 
     const heatRatio = playerHeat / 100;
-    this.heatBar.width = 200 * heatRatio;
+    this.heatBar.width = 248 * heatRatio;
     const isOverheated = heatOverheatTimer > 0;
     this.heatBar.setFillStyle(
       isOverheated ? 0xff0000 :
@@ -236,19 +295,27 @@ export class HUDManager {
     this.worldLabel.setText(`[Q] ${pal.label}`);
     this.worldLabel.setColor(w === WorldType.FOUNDRY ? "#ff8844" : "#44ccff");
 
+    // World-switch cooldown arc — drawn inside the world-label panel
     this.worldSwitchArc.clear();
     if (!switchReady) {
       const ratio = 1 - (ctx.worldManager.cooldownRemaining / 4000);
-      const cx = GAME_WIDTH - 80;
-      const cy = 22;
+      const acx = GAME_WIDTH - 18;
+      const acy = 36;
       const r = 10;
       const arcColor = w === WorldType.FOUNDRY ? 0xff8844 : 0x44ccff;
-      this.worldSwitchArc.lineStyle(2, 0x222222, 0.8);
-      this.worldSwitchArc.strokeCircle(cx, cy, r);
+      this.worldSwitchArc.lineStyle(2, 0x333333, 0.7);
+      this.worldSwitchArc.strokeCircle(acx, acy, r);
       this.worldSwitchArc.lineStyle(3, arcColor, 1);
       this.worldSwitchArc.beginPath();
-      this.worldSwitchArc.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + ratio * Math.PI * 2, false);
+      this.worldSwitchArc.arc(acx, acy, r, -Math.PI / 2, -Math.PI / 2 + ratio * Math.PI * 2, false);
       this.worldSwitchArc.strokePath();
+    } else {
+      // Show a small "READY" glow dot
+      const acx = GAME_WIDTH - 18;
+      const acy = 36;
+      const arcColor = w === WorldType.FOUNDRY ? 0xff8844 : 0x44ccff;
+      this.worldSwitchArc.fillStyle(arcColor, 0.9);
+      this.worldSwitchArc.fillCircle(acx, acy, 5);
     }
 
     this.lowHpOverlay.clear();
@@ -273,18 +340,25 @@ export class HUDManager {
       const cooldowns = [8000, 6000, 12000, 16000];
       const colors = [0x00ffff, 0xcc44ff, 0x44ff88, 0x44ccff];
       for (let i = 0; i < 4; i++) {
-        const tx = 12 + i * 62;
-        const ty = GAME_HEIGHT - 46;
+        const tx = 12 + i * 66;
+        const ty = GAME_HEIGHT - 57;
         const ready = ctx.abilitySystem.canUse(ids[i]);
         const ratio = 1 - ctx.abilitySystem.getCooldownRatio(ids[i]);
-        this.abilityHudGfx.fillStyle(0x111111, 0.7);
-        this.abilityHudGfx.fillRect(tx, ty, 58, 6);
+        // Cooldown bar background
+        this.abilityHudGfx.fillStyle(0x0a0a0a, 0.85);
+        this.abilityHudGfx.fillRect(tx, ty, 62, 7);
+        // Fill
         this.abilityHudGfx.fillStyle(ready ? colors[i] : 0x444444, ready ? 1 : 0.5);
-        this.abilityHudGfx.fillRect(tx, ty, 58 * ratio, 6);
+        this.abilityHudGfx.fillRect(tx, ty, 62 * ratio, 7);
+        // Ready pulse glow
+        if (ready) {
+          this.abilityHudGfx.lineStyle(1, colors[i], 0.6 + 0.4 * Math.sin(performance.now() * 0.006));
+          this.abilityHudGfx.strokeRect(tx, ty, 62, 7);
+        }
         if (this.abilityHudTexts[i]) {
           const remaining = ((1 - ratio) * cooldowns[i] / 1000).toFixed(1);
           this.abilityHudTexts[i].setText(ready ? labels[i] : `${labels[i].slice(0, 3)} ${remaining}s`);
-          this.abilityHudTexts[i].setAlpha(ready ? 1 : 0.55);
+          this.abilityHudTexts[i].setAlpha(ready ? 1 : 0.6);
         }
       }
     }
@@ -337,6 +411,42 @@ export class HUDManager {
     } else {
       this.corruptionText.setText("");
     }
+
+    // ── REACTOR HP BAR UPDATE ─────────────────────────────────────────────────
+    if (this.reactorHpBar && this.reactorHpBarBg) {
+      const reactRatio = Math.max(0, ctx.reactorHp / ctx.reactorMaxHp);
+      const rBarW = 206;
+      this.reactorHpBar.width = rBarW * reactRatio;
+      const reactColor = reactRatio > 0.5 ? 0x00ff88 : reactRatio > 0.25 ? 0xffaa00 : 0xff2200;
+      this.reactorHpBar.setFillStyle(reactColor);
+      // Ghost bar lerps down to show recent damage
+      if (this.reactorHpGhost) {
+        this._reactorLastPct = Phaser.Math.Linear(this._reactorLastPct, reactRatio, 0.025);
+        this.reactorHpGhost.width = rBarW * Math.max(reactRatio, this._reactorLastPct);
+      }
+      // Flash on hit
+      if (this._reactorFlashTimer > 0) {
+        this._reactorFlashTimer -= 16;
+        this.reactorHpBar.setAlpha(Math.sin(this._reactorFlashTimer * 0.04) * 0.45 + 0.55);
+      } else {
+        this.reactorHpBar.setAlpha(1);
+      }
+      // Critical pulse warning
+      if (reactRatio < 0.25 && !ctx.gameOver) {
+        this.reactorHpLabel?.setColor(Math.random() > 0.5 ? "#ff2200" : "#ff7700");
+      } else {
+        this.reactorHpLabel?.setColor(reactRatio < 0.5 ? "#ffaa00" : "#00ff88");
+      }
+    }
+  }
+
+  /** Call when reactor takes damage — triggers flash on the HP bar. */
+  flashReactorBar(): void {
+    this._reactorFlashTimer = 900;
+    if (this.reactorHpGhost) {
+      const pct = this.ctx.reactorHp / this.ctx.reactorMaxHp;
+      this._reactorLastPct = Math.min(1, pct + 0.07);
+    }
   }
 
   drawBreachRings(): void {
@@ -376,9 +486,30 @@ export class HUDManager {
 
   updateBossHpBar(hp: number, maxHp: number): void {
     if (this.bossHpBar && maxHp > 0) {
-      this.bossHpBar.width = 600 * (hp / maxHp);
-      const pct = hp / maxHp;
-      this.bossHpBar.setFillStyle(pct > 0.5 ? 0xff2200 : pct > 0.25 ? 0xff6600 : 0xff0000);
+      const pct = Phaser.Math.Clamp(hp / maxHp, 0, 1);
+      const fullW = 600;
+      this.bossHpBar.width = fullW * pct;
+      // Color phases: red → orange → red — tracks BossAgent thresholds (0.6/0.3/0.15)
+      const col = pct > 0.6 ? 0xff2200
+                : pct > 0.3 ? 0xff8800
+                : pct > 0.15 ? 0xffcc00
+                : 0xff0044;
+      this.bossHpBar.setFillStyle(col);
+      // Damage chip lerps down behind the live bar — readable hit feedback
+      if (this.bossHpGhost) {
+        const ghostPct = this.bossHpGhost.width / fullW;
+        const target = pct;
+        const lerped = Phaser.Math.Linear(ghostPct, target, 0.08);
+        this.bossHpGhost.width = fullW * lerped;
+        // Flash bar when sudden damage > 5% in one frame
+        if (this._bossLastPct - pct > 0.05) {
+          const bar = this.bossHpBar;
+          this.ctx.scene.tweens.add({
+            targets: bar, alpha: { from: 0.4, to: 1 }, duration: 220, ease: "Sine.easeOut",
+          });
+        }
+      }
+      this._bossLastPct = pct;
     }
   }
 
@@ -387,26 +518,45 @@ export class HUDManager {
     const bossBarW = 600;
     const bossBarH = 18;
     const bossBarX = GAME_WIDTH / 2 - bossBarW / 2;
-    const bossBarY = 28;
+    const bossBarY = 62; // below wave indicator (wave indicator spans y=6–38)
+    // Outer slab (dark with red rim)
     this.bossHpBarBg = scene.add
-      .rectangle(GAME_WIDTH / 2, bossBarY, bossBarW + 4, bossBarH + 4, 0x330000)
-      .setScrollFactor(0).setDepth(110);
+      .rectangle(GAME_WIDTH / 2, bossBarY, bossBarW + 8, bossBarH + 8, 0x140000)
+      .setScrollFactor(0).setDepth(110).setStrokeStyle(2, 0x882211, 1);
+    // Damage chip (yellow ghost behind the live bar)
+    this.bossHpGhost = scene.add
+      .rectangle(bossBarX, bossBarY, bossBarW, bossBarH, 0xffee44)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(110.5).setAlpha(0.55);
+    // Live HP bar
     this.bossHpBar = scene.add
       .rectangle(bossBarX, bossBarY, bossBarW, bossBarH, 0xff2200)
       .setOrigin(0, 0.5).setScrollFactor(0).setDepth(111);
-    this.bossNameText = scene.add.text(GAME_WIDTH / 2, bossBarY - 16, bossName, {
-      fontFamily: "monospace", fontSize: "16px", color: "#ff4444", fontStyle: "bold",
-      stroke: "#000000", strokeThickness: 3,
+    // Phase tick markers at 0.6 / 0.3 / 0.15 — match BossAgent phase thresholds
+    this.bossHpPhaseTicks = scene.add.graphics().setScrollFactor(0).setDepth(112);
+    this.bossHpPhaseTicks.lineStyle(2, 0xffffff, 0.85);
+    [0.6, 0.3, 0.15].forEach(t => {
+      const x = bossBarX + bossBarW * t;
+      this.bossHpPhaseTicks!.lineBetween(x, bossBarY - bossBarH / 2, x, bossBarY + bossBarH / 2);
+    });
+    this.bossNameText = scene.add.text(GAME_WIDTH / 2, bossBarY - 20, "▰  " + bossName + "  ▰", {
+      fontFamily: "monospace", fontSize: "16px", color: "#ff5555", fontStyle: "bold",
+      stroke: "#000000", strokeThickness: 4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(112);
+    this.bossNameText.setShadow(0, 0, "#ff2200", 8, true, true);
+    this._bossLastPct = 1;
     void wave;
   }
 
   destroyBossUI(): void {
     this.bossHpBar?.destroy();
     this.bossHpBarBg?.destroy();
+    this.bossHpGhost?.destroy();
+    this.bossHpPhaseTicks?.destroy();
     this.bossNameText?.destroy();
     this.bossHpBar = null;
     this.bossHpBarBg = null;
+    this.bossHpGhost = null;
+    this.bossHpPhaseTicks = null;
     this.bossNameText = null;
   }
 
@@ -422,20 +572,21 @@ export class HUDManager {
 
   private _showTutorialHint(): void {
     const tips = [
-      { t: 5200,  msg: "WASD / ←↑↓→ to move  •  Mouse to aim  •  LMB or SPACE to shoot" },
-      { t: 9000,  msg: "Press Q to PHASE-SHIFT between worlds  •  Each world has different enemies" },
-      { t: 13000, msg: "SHIFT or RMB to DASH  •  Heat limits shooting — don't overheat!" },
+      { t: 4000,  msg: "WASD / ←↑↓→ to move  •  Mouse to aim  •  LMB or SPACE to shoot", dur: 4500 },
+      { t: 9500,  msg: "SHIFT or RMB to DASH  •  Rapid fire OVERHEATS weapon — let it cool!", dur: 5000 },
+      { t: 17000, msg: "Press Q to PHASE-SHIFT  •  FOUNDRY = red enemies attack YOU  •  CIRCUIT = purple/yellow attack REACTOR", dur: 6000 },
+      { t: 27000, msg: "Collect SCRAP ★ from enemies  •  [B] opens SHOP in ARMORY (top-right) for upgrades", dur: 5500 },
     ];
-    for (const { t, msg } of tips) {
+    for (const { t, msg, dur } of tips) {
       this.ctx.scene.time.delayedCall(t, () => {
         if (this.ctx.gameOver || this.ctx.waveManager.currentWave > 1) return;
-        const tip = this.ctx.scene.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 12, msg, {
+        const tip = this.ctx.scene.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 96, msg, {
           fontFamily: "monospace", fontSize: "12px",
           color: "#aaffdd", backgroundColor: "#00000099",
           padding: { x: 10, y: 7 }, align: "center",
         }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(105).setAlpha(0);
         this.ctx.scene.tweens.add({ targets: tip, alpha: 1, duration: 400 });
-        this.ctx.scene.time.delayedCall(2600, () => {
+        this.ctx.scene.time.delayedCall(dur, () => {
           this.ctx.scene.tweens.add({
             targets: tip, alpha: 0, duration: 500,
             onComplete: () => tip.destroy(),

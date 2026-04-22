@@ -184,7 +184,68 @@ export class ShootSkill extends BaseSkill {
       this._fireOne(x, y, a);
     }
 
+    // ── MACHINE-THEME MUZZLE FX ────────────────────────────────────────
+    ShootSkill._muzzleFx(_scene, x, y, angle, this.cfg.tint);
+
     SystemsBus.instance.emit("projectile:fired", this.ownerId, x, y, angle);
+  }
+
+  /**
+   * Industrial muzzle effect: bright core flash, directional spark fan, and
+   * an ejected shell casing that tumbles + falls. Object-pool-friendly: all
+   * elements self-destruct via tween onComplete and are not retained.
+   */
+  private static _muzzleFx(scene: Phaser.Scene, x: number, y: number, angle: number, color: number): void {
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+
+    // 1) Hot core — white-hot pinpoint that fades through tint
+    const core = scene.add.circle(x + cos * 16, y + sin * 16, 5, 0xffffff, 1)
+      .setDepth(50).setBlendMode(Phaser.BlendModes.ADD);
+    scene.tweens.add({
+      targets: core, scale: 2.6, alpha: 0, duration: 90,
+      onComplete: () => core.destroy(),
+    });
+
+    // 2) Directional flash — stretched along barrel axis
+    const flash = scene.add.ellipse(x + cos * 22, y + sin * 22, 28, 10, color, 0.85)
+      .setRotation(angle).setDepth(49).setBlendMode(Phaser.BlendModes.ADD);
+    scene.tweens.add({
+      targets: flash, scaleX: 1.8, scaleY: 0.4, alpha: 0, duration: 110,
+      onComplete: () => flash.destroy(),
+    });
+
+    // 3) Spark fan — 4 short hot streaks
+    for (let i = 0; i < 4; i++) {
+      const spread = (Math.random() - 0.5) * 0.7;
+      const sa = angle + spread;
+      const speed = 140 + Math.random() * 90;
+      const spark = scene.add.rectangle(x + cos * 18, y + sin * 18, 4, 1.5, 0xffe28a, 1)
+        .setRotation(sa).setDepth(50).setBlendMode(Phaser.BlendModes.ADD);
+      scene.tweens.add({
+        targets: spark,
+        x: spark.x + Math.cos(sa) * speed * 0.18,
+        y: spark.y + Math.sin(sa) * speed * 0.18,
+        scaleX: 0.3, alpha: 0, duration: 180,
+        ease: "Quad.easeOut",
+        onComplete: () => spark.destroy(),
+      });
+    }
+
+    // 4) Ejected shell casing — perpendicular to barrel, tumbles + falls
+    const ejectAngle = angle + Math.PI * 0.5 + (Math.random() - 0.5) * 0.4;
+    const casing = scene.add.rectangle(x, y, 5, 2, 0xc9a85a, 1)
+      .setStrokeStyle(0.5, 0x6b4a1a, 1)
+      .setDepth(46);
+    const ev = 80 + Math.random() * 40;
+    scene.tweens.add({
+      targets: casing,
+      x: casing.x + Math.cos(ejectAngle) * ev * 0.45,
+      y: casing.y + Math.sin(ejectAngle) * ev * 0.45 + 18, // slight gravity
+      angle: 540 + Math.random() * 360,
+      alpha: 0,
+      duration: 380, ease: "Quad.easeIn",
+      onComplete: () => casing.destroy(),
+    });
   }
 
   /** Fire a single projectile bypassing cooldown — used by special abilities */

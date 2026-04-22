@@ -83,13 +83,13 @@ export class WaveManager {
     const enemyCount = Math.min(12, Math.floor(
       this.config.baseEnemyCount * Math.pow(this.config.enemyScaling, wave - 1)
     ));
-    const guardCount = wave >= 3 ? Math.min(wave - 2, 5) : 0;
-    const collectorCount = Math.min(3, 1 + Math.floor((wave - 1) / 3));
+    const guardCount = Math.min(1 + Math.floor(wave * 0.7), 8);
+    const collectorCount = Math.min(2 + Math.floor(wave * 0.6), 8);
     const turretCount = wave >= 4 ? Math.min(Math.floor((wave - 3) * 0.8), 4) : 0;
     const sawbladeCount = wave >= 2 ? Math.min(wave - 1, 4) : 0;
-    const welderCount = wave >= 5 ? Math.min(wave - 4, 3) : 0;
+    const welderCount = wave >= 2 ? Math.min(1 + Math.floor((wave - 2) * 0.6), 4) : 0;
     const enemyHp = 40 + wave * 12;
-    const enemySpeed = Math.min(70 + wave * 5, 160);
+    const enemySpeed = Math.min(95 + wave * 7, 200);
 
     return { enemyCount, guardCount, collectorCount, turretCount, sawbladeCount, welderCount, enemyHp, enemySpeed };
   }

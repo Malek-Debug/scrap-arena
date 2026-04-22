@@ -1,3 +1,5 @@
+import { IntegrityGuard } from "./IntegrityGuard";
+
 export class ComboSystem {
   combo = 0;
   maxCombo = 0;
@@ -14,6 +16,13 @@ export class ComboSystem {
     { combo: 30, label: "BEYOND MACHINE!", color: "#ffffff" },
   ];
 
+  /** Single point of entry for any score gain — records to IntegrityGuard. */
+  addScore(points: number): void {
+    if (!Number.isFinite(points) || points <= 0) return;
+    this.score += points | 0;
+    IntegrityGuard.instance.recordScore(this.score);
+  }
+
   onKill(): { multiplier: number; milestone: { label: string; color: string } | null } {
     this.combo++;
     this.comboTimer = ComboSystem.COMBO_WINDOW;
@@ -24,7 +33,7 @@ export class ComboSystem {
 
     // Add score: base 100 * multiplier
     const points = Math.floor(100 * this.multiplier);
-    this.score += points;
+    this.addScore(points);
 
     // Check milestone
     const milestone = ComboSystem.COMBO_THRESHOLDS.find(t => t.combo === this.combo) ?? null;
@@ -54,5 +63,6 @@ export class ComboSystem {
     this.multiplier = 1;
     this.score = 0;
     this.comboTimer = 0;
+    IntegrityGuard.instance.recordScore(0);
   }
 }

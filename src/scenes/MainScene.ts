@@ -85,6 +85,9 @@ export class MainScene extends Phaser.Scene {
   private totalScrapCollected = 0;
   private deathQueue: AnyAgent[] = [];
   private contactDamageCooldown = 0;
+  private iFrameTimer = 0;
+  private playerKnockbackVX = 0;
+  private playerKnockbackVY = 0;
   private pauseContainer: Phaser.GameObjects.Container | null = null;
   private playerHeat = 0;
   private heatOverheatTimer = 0;
@@ -108,12 +111,20 @@ export class MainScene extends Phaser.Scene {
   private _powerCardHeld = false;
   private _powerCardSprite: Phaser.GameObjects.Arc | null = null;
   private _corruptionCriticalShown = false;
+  private _waveCooldownMs = 0;  // rest timer after wave clear
+  // ── Reactor defense mechanic ───────────────────────────
+  private reactorHp = 500;
+  private reactorMaxHp = 500;
+  private _reactorDmgCooldown = 0;
+  private _reactorWarnShown50 = false;
+  private _reactorWarnShown25 = false;
   // ── Shop / interact proximity hint ──────────────────────
   private _interactHint: Phaser.GameObjects.Text | null = null;
   private playerShielded = false;
   private _physicsZoneBannerText: Phaser.GameObjects.Text | null = null;
   private storySystem!: StorySystem;
   private godMode = false;
+  private _worldSwitchTutorialShown = false;
   private _ctx!: GameContext;
   private _abilityMgr!: AbilityManager;
   private _hudMgr!: HUDManager;
@@ -171,7 +182,7 @@ export class MainScene extends Phaser.Scene {
     this.mapObstacles.setupForWave(1, this.upgradeSystem.unlockedThemes);
     this.fogOverlay = this.add.graphics().setDepth(100).setScrollFactor(0);
     // Geometry mask: punch a transparent hole where the player can see (inverted = fog outside the circle)
-    this._fogMaskGfx = this.add.graphics().setScrollFactor(0).setDepth(99);
+    this._fogMaskGfx = this.add.graphics().setScrollFactor(0).setVisible(false);
     const _fogGeomMask = this._fogMaskGfx.createGeometryMask();
     _fogGeomMask.setInvertAlpha(true);
     this.fogOverlay.setMask(_fogGeomMask);
@@ -254,10 +265,14 @@ export class MainScene extends Phaser.Scene {
     _fillRadar(this.enemies, "enemy"); _fillRadar(this.guards, "guard"); _fillRadar(this.collectors, "collector");
     _fillRadar(this.turrets, "turret"); _fillRadar(this.sawblades, "sawblade"); _fillRadar(this.welders, "welder");
     if (this.boss) { if (this._radarCache.length <= _rc) this._radarCache.push({ posX: 0, posY: 0, type: "", isDead: false }); const be = this._radarCache[_rc++]; be.posX = this.boss.posX; be.posY = this.boss.posY; be.type = "boss"; be.isDead = this.boss.isDead; }
-    this.enemyRadar.update(this.playerSprite.x, this.playerSprite.y, this.cameras.main, this._radarCache.slice(0, _rc));
+    this.enemyRadar.update(this.playerSprite.x, this.playerSprite.y, this.cameras.main, this._radarCache, _rc);
     if (Phaser.Input.Keyboard.JustDown(this.qKey) && this.worldManager.canSwitch) {
       this.playerHeat = Math.min(MainScene.MAX_HEAT - 1, this.playerHeat + MainScene.WORLD_SWITCH_HEAT_COST);
       this._performWorldSwitch(); this.missionSystem.onWorldSwitch();
+      if (!this._worldSwitchTutorialShown) {
+        this._worldSwitchTutorialShown = true;
+        this._showWorldSwitchTutorial();
+      }
     }
     if (Phaser.Input.Keyboard.JustDown(this.shopKey) && !this.upgradeUI.isVisible) this._openShop(false);
     const instabilityDmg = this.worldManager.update(deltaMs);
@@ -278,6 +293,15 @@ export class MainScene extends Phaser.Scene {
     this.playerPredictor.update(deltaMs, this.playerSprite.x, this.playerSprite.y, this.worldManager.currentWorld);
     if (!this._aiLearningShown && this.playerPredictor.sampleCount >= 15) { this._aiLearningShown = true; this._storyCtrl.showAiLearningNotice(); }
     this._playerCtrl.update(deltaMs, inp);
+    // Safety: push player out of locked-door barriers in case arcade physics
+    // tunneled through (high velocity dash, low-fps frame, etc.)
+    if (this.mapObstacles && this.playerSprite) {
+      const br = this.mapObstacles.resolveBarrierCollision(this.playerSprite.x, this.playerSprite.y, 20);
+      if (br.x !== this.playerSprite.x || br.y !== this.playerSprite.y) {
+        this.playerSprite.setPosition(br.x, br.y);
+        (this.playerSprite.body as Phaser.Physics.Arcade.Body).reset(br.x, br.y);
+      }
+    }
     this._abilityMgr.update(deltaMs);
     this.powerUpSystem.update(deltaMs);
     const puType = this.powerUpSystem.checkPickup(this.playerSprite.x, this.playerSprite.y, this.playerStats.pickupRange);
@@ -289,6 +313,12 @@ export class MainScene extends Phaser.Scene {
       const wds = deltaMs * 0.001;
       for (const proj of ShootSkill.activeProjectiles) {
         const body = (proj.sprite as any).body as Phaser.Physics.Arcade.Body; if (!body) continue;
+        // Boss-owned projectiles ignore the arena wind & room-zone wind. The
+        // boss IS the source of the field — its shots fly true so it can hit
+        // the player as reliably as the player can hit it (was making the boss
+        // miss every shot in phases 3-4).
+        const isBossProjectile = proj.ownerId >= 9000;
+        if (isBossProjectile) continue;
         const pZone = this.mapObstacles.getRoomPhysicsAt(proj.sprite.x, proj.sprite.y);
         if (pZone?.windForce) { body.velocity.x = Phaser.Math.Clamp(body.velocity.x + pZone.windForce.x*wds*3, -900, 900); body.velocity.y = Phaser.Math.Clamp(body.velocity.y + pZone.windForce.y*wds*3, -900, 900); }
         if (bossWind) { body.velocity.x = Phaser.Math.Clamp(body.velocity.x + bossWind.x*wds*4, -1000, 1000); body.velocity.y = Phaser.Math.Clamp(body.velocity.y + bossWind.y*wds*4, -1000, 1000); }
@@ -298,6 +328,54 @@ export class MainScene extends Phaser.Scene {
     const hazardDmg = this.arenaHazards.update(deltaMs, this.playerSprite.x, this.playerSprite.y);
     if (hazardDmg > 0) this._combatSys.damagePlayer(Math.ceil(hazardDmg));
     this.mapObstacles.update();
+    // ── REACTOR DEFENSE: enemies reaching reactor deal damage ────────────────
+    const reactDefPos = this.mapObstacles?.reactorMachinePos;
+    if (reactDefPos && !this.gameOver) {
+      this._reactorDmgCooldown = Math.max(0, this._reactorDmgCooldown - deltaMs);
+      if (this._reactorDmgCooldown <= 0) {
+        const DAMAGE_R2 = 58 * 58;
+        let anyInRange = false;
+        for (const agent of this.allAgents) {
+          if (agent.isDead) continue;
+          const dx = agent.posX - reactDefPos.x;
+          const dy = agent.posY - reactDefPos.y;
+          if (dx * dx + dy * dy < DAMAGE_R2) { anyInRange = true; break; }
+        }
+        if (anyInRange) {
+          this.reactorHp = Math.max(0, this.reactorHp - 15);
+          this._reactorDmgCooldown = 500;
+          this._hudMgr?.flashReactorBar();
+          AudioManager.instance.reactorAlarm();
+          Juice.screenShake(this, 0.007, 140);
+          if (!this._reactorWarnShown50 && this.reactorHp <= this.reactorMaxHp * 0.5) {
+            this._reactorWarnShown50 = true;
+            this._storyCtrl?.showStoryHint("⚠ WARNING: REACTOR AT 50% — ELIMINATE ATTACKERS!", 4500);
+          }
+          if (!this._reactorWarnShown25 && this.reactorHp <= this.reactorMaxHp * 0.25) {
+            this._reactorWarnShown25 = true;
+            this._storyCtrl?.showStoryHint("🔴 CRITICAL: REACTOR AT 25%! STATION WILL BE LOST!", 5500);
+          }
+          if (this.reactorHp <= 0) this._reactorDestroyed();
+        }
+      }
+      // Update reactor damage overlay (drawn directly on world layer)
+      const overlay = this.mapObstacles.reactorDamageOverlay;
+      if (overlay) {
+        overlay.clear();
+        const hpRatio = this.reactorHp / this.reactorMaxHp;
+        if (hpRatio < 1) {
+          const dmgRatio = 1 - hpRatio;
+          overlay.fillStyle(0xff2200, dmgRatio * 0.55);
+          overlay.fillCircle(reactDefPos.x, reactDefPos.y, 60);
+          // Warning pulse ring when below 50%
+          if (hpRatio < 0.5) {
+            const pulse = Math.sin(performance.now() * 0.006) * 0.5 + 0.5;
+            overlay.lineStyle(3, 0xff4400, 0.4 + pulse * 0.5);
+            overlay.strokeCircle(reactDefPos.x, reactDefPos.y, 65 + pulse * 8);
+          }
+        }
+      }
+    }
     const laserDmg = this.mapObstacles.checkLaserDamage(this.playerSprite.x, this.playerSprite.y, 14);
     if (laserDmg > 0) this._combatSys.damagePlayer(laserDmg);
     this.fogOverlay.clear();
@@ -326,7 +404,7 @@ export class MainScene extends Phaser.Scene {
       if (repaired) {
         const fx = this.add.circle(this.playerSprite.x, this.playerSprite.y, 40, 0x44ff88, 0.4).setDepth(15).setBlendMode(Phaser.BlendModes.ADD);
         this.tweens.add({ targets: fx, scaleX: 2, scaleY: 2, alpha: 0, duration: 400, onComplete: () => fx.destroy() });
-        this.comboSystem.score += 25;
+        this.comboSystem.addScore(25);
       }
     }
     this.aiAccumulator += deltaSec;
@@ -343,9 +421,15 @@ export class MainScene extends Phaser.Scene {
       this._hudMgr.updateBossHpBar(this.boss.hp, this.boss.maxHp);
     }
     this._combatSys.processDeath();
-    if (this.boss?.isDead) this._waveOrch.onBossDeath();
+    if (this.boss?.isDead) {
+      this._waveOrch.onBossDeath();
+      this._waveCooldownMs = 12000; // post-boss rest: same cooldown as a normal wave clear
+    }
     if (this.agentPositions.length !== this.allAgents.length * 2) this.agentPositions = new Float32Array(this.allAgents.length * 2);
-    this._waveOrch.checkWaveCleared();
+    if (this._waveOrch.checkWaveCleared()) {
+      this._waveCooldownMs = 12000; // 12 seconds rest after wave clear
+    }
+    if (this._waveCooldownMs > 0) this._waveCooldownMs -= deltaMs;
     this._hudMgr.update(this.playerHeat, this.heatOverheatTimer);
     if (this._storyCtrl) this._hudMgr.setNarrativePhase(`▸ ${this._storyCtrl.getNarrativePhaseLabel()}`);
     const intensity = this.fractureFX?.intensity ?? 0;
@@ -359,6 +443,7 @@ export class MainScene extends Phaser.Scene {
     this.shadowDouble?.setIntensity(intensity);
     this.gameJuice.update(deltaMs);
     if (this.contactDamageCooldown > 0) this.contactDamageCooldown -= deltaMs;
+    if (this.iFrameTimer > 0) this.iFrameTimer -= deltaMs;
   }
 
   private _updateAgentVisuals(deltaMs: number): void {
@@ -453,7 +538,12 @@ export class MainScene extends Phaser.Scene {
       get abilityShieldTimer()    { return s.abilityShieldTimer; },  set abilityShieldTimer(v)  { s.abilityShieldTimer = v; },
       get abilityShieldGfx()      { return s.abilityShieldGfx; },   set abilityShieldGfx(v)    { s.abilityShieldGfx = v; },
       get contactDamageCooldown() { return s.contactDamageCooldown; }, set contactDamageCooldown(v) { s.contactDamageCooldown = v; },
+      get iFrameTimer()           { return s.iFrameTimer; },           set iFrameTimer(v)           { s.iFrameTimer = v; },
+      get playerKnockbackVX()     { return s.playerKnockbackVX; },     set playerKnockbackVX(v)     { s.playerKnockbackVX = v; },
+      get playerKnockbackVY()     { return s.playerKnockbackVY; },     set playerKnockbackVY(v)     { s.playerKnockbackVY = v; },
       get deathQueue()            { return s.deathQueue; },
+      get reactorHp()             { return s.reactorHp; },         set reactorHp(v)             { s.reactorHp = v; },
+      get reactorMaxHp()          { return s.reactorMaxHp; },
     };
   }
 
@@ -595,17 +685,38 @@ export class MainScene extends Phaser.Scene {
       () => { this.upgradeUI.hide(); if (afterWave) this._afterShopClose(); },
     );
   }
-  private _afterShopClose(): void { this._storyCtrl?.showStoryHint("◉ enter another room and act (shoot/move) to trigger the next wave", 5000); }
+  private _afterShopClose(): void { this._storyCtrl?.showStoryHint("◉ WALK INTO a combat room to start the next wave  •  cooldown must be over first", 5500); }
   private _showUpgradeUI(): void { this._openShop(true); }
 
   private _showRoomUnlockedNotification(roomName: string): void {
     const x = GAME_WIDTH / 2, y = GAME_HEIGHT * 0.3;
-    const bg = this.add.graphics().setDepth(250).setScrollFactor(0);
-    bg.fillStyle(0x000000, 0.75); bg.fillRoundedRect(x-180, y-28, 360, 56, 10);
-    bg.lineStyle(2, 0x00ff88, 0.9); bg.strokeRoundedRect(x-180, y-28, 360, 56, 10);
-    const label = this.add.text(x, y-10, "SECTOR UNLOCKED", { fontSize: "13px", fontFamily: "monospace", color: "#00ff88", stroke: "#000000", strokeThickness: 3 }).setOrigin(0.5).setDepth(251).setScrollFactor(0);
-    const sub = this.add.text(x, y+12, roomName, { fontSize: "16px", fontFamily: "monospace", color: "#ffffff", stroke: "#000000", strokeThickness: 3 }).setOrigin(0.5).setDepth(251).setScrollFactor(0);
-    this.time.delayedCall(2200, () => { bg.destroy(); label.destroy(); sub.destroy(); });
+    AudioManager.instance.worldShift();
+    // Backdrop slab + accent bar — animated reveal
+    const bg = this.add.graphics().setDepth(250).setScrollFactor(0).setAlpha(0);
+    bg.fillStyle(0x000000, 0.85); bg.fillRoundedRect(x-220, y-34, 440, 68, 12);
+    bg.lineStyle(2, 0x00ff88, 1.0); bg.strokeRoundedRect(x-220, y-34, 440, 68, 12);
+    // Accent ticks for industrial vibe
+    bg.fillStyle(0x00ff88, 1.0);
+    bg.fillRect(x-218, y-32, 8, 4); bg.fillRect(x+210, y+28, 8, 4);
+    const label = this.add.text(x, y-12, "▰▰  SECTOR UNLOCKED  ▰▰", {
+      fontSize: "13px", fontFamily: "monospace", color: "#00ff88",
+      stroke: "#000000", strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(251).setScrollFactor(0).setAlpha(0);
+    label.setShadow(0, 0, "#00ff88", 8, true, true);
+    const sub = this.add.text(x, y+14, roomName, {
+      fontSize: "20px", fontFamily: "monospace", color: "#ffffff",
+      stroke: "#000000", strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(251).setScrollFactor(0).setAlpha(0);
+    // Reveal: bg fade in, text slide up + fade
+    this.tweens.add({ targets: bg, alpha: 1, duration: 240, ease: "Sine.easeOut" });
+    this.tweens.add({ targets: [label, sub], alpha: 1, y: "-=6", duration: 360, delay: 80, ease: "Back.easeOut" });
+    // Hold then dissolve
+    this.time.delayedCall(2400, () => {
+      this.tweens.add({
+        targets: [bg, label, sub], alpha: 0, duration: 420, ease: "Sine.easeIn",
+        onComplete: () => { bg.destroy(); label.destroy(); sub.destroy(); },
+      });
+    });
   }
 
   private _applyUpgradesToPlayer(): void {
@@ -731,6 +842,90 @@ export class MainScene extends Phaser.Scene {
     this.tweens.add({ targets: this._physicsZoneBannerText, alpha: 0, y: by - 30, duration: 2200, ease: "Quad.easeIn", onComplete: () => { this._physicsZoneBannerText?.destroy(); this._physicsZoneBannerText = null; } });
   }
 
+  private _showWorldSwitchTutorial(): void {
+    const cam = this.cameras.main;
+    const cx = cam.scrollX + cam.width / 2;
+    const cy = cam.scrollY + cam.height / 2;
+    const W = 620, H = 280;
+    const bg = this.add.graphics().setScrollFactor(0).setDepth(310);
+    bg.fillStyle(0x000000, 0.92);
+    bg.fillRoundedRect(cx - W / 2, cy - H / 2, W, H, 18);
+    bg.lineStyle(3, 0xff8844, 1);
+    bg.strokeRoundedRect(cx - W / 2, cy - H / 2, W, H, 18);
+    // Inner accent line
+    bg.lineStyle(1, 0xff441166, 0.5);
+    bg.strokeRoundedRect(cx - W / 2 + 6, cy - H / 2 + 6, W - 12, H - 12, 14);
+
+    const title = this.add.text(cx, cy - H / 2 + 28, "⚙ PHASE-SHIFT PROTOCOL ⚙", {
+      fontFamily: "monospace", fontSize: "22px", color: "#ff8844",
+      fontStyle: "bold", stroke: "#000000", strokeThickness: 4,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(311);
+    title.setShadow(0, 0, "#ff4400", 8, true, true);
+
+    const lines = [
+      { txt: "MACHINE CORE  [ amber world ]", col: "#ff9944" },
+      { txt: "  Red drones attack YOU — fight them off", col: "#ccaa88" },
+      { txt: "  Turrets and sawblades patrol the arena", col: "#ccaa88" },
+      { txt: "", col: "#ffffff" },
+      { txt: "VOID SECTOR  [ cyan world ]", col: "#44ccff" },
+      { txt: "  Purple machines, drones & yellow units ATTACK THE REACTOR", col: "#cc66ff" },
+      { txt: "  Switch to this world to defend the reactor!", col: "#88ccdd" },
+      { txt: "", col: "#ffffff" },
+      { txt: "Switching costs HEAT  •  4 second cooldown  •  Press Q again", col: "#aaaaaa" },
+    ];
+    lines.forEach((l, i) => {
+      this.add.text(cx - W / 2 + 24, cy - H / 2 + 65 + i * 19, l.txt, {
+        fontFamily: "monospace", fontSize: "12px", color: l.col,
+      }).setScrollFactor(0).setDepth(311);
+    });
+
+    const allObjs = [bg, title];
+    // Auto-dismiss after 5.5 s
+    const dismiss = () => {
+      this.tweens.add({
+        targets: allObjs, alpha: 0, duration: 400,
+        onComplete: () => allObjs.forEach(o => o.destroy()),
+      });
+    };
+    this.time.delayedCall(5500, dismiss);
+    // Also allow click-to-dismiss
+    const hitArea = this.add.rectangle(cx, cy, W, H, 0x000000, 0)
+      .setScrollFactor(0).setDepth(312).setInteractive();
+    hitArea.once("pointerdown", () => { hitArea.destroy(); dismiss(); });
+    allObjs.push(hitArea as unknown as Phaser.GameObjects.Graphics);
+  }
+
+  private _reactorDestroyed(): void {
+    if (this.gameOver) return;
+    Juice.screenShake(this, 0.035, 600);
+    Juice.slowMo(this, 0.1, 1000);
+    AudioManager.instance.playerDeath();
+    const x = GAME_WIDTH / 2, y = GAME_HEIGHT / 2;
+    const flash = this.add.rectangle(x, y, GAME_WIDTH, GAME_HEIGHT, 0xff2200, 0)
+      .setScrollFactor(0).setDepth(200);
+    this.tweens.add({
+      targets: flash, alpha: 0.6, duration: 250, yoyo: true, repeat: 3,
+      onComplete: () => {
+        flash.destroy();
+        const bg = this.add.graphics().setScrollFactor(0).setDepth(299);
+        bg.fillStyle(0x000000, 0.75);
+        bg.fillRoundedRect(x - 280, y - 70, 560, 140, 14);
+        bg.lineStyle(3, 0xff2200, 1);
+        bg.strokeRoundedRect(x - 280, y - 70, 560, 140, 14);
+        const title = this.add.text(x, y - 24, "⚡ REACTOR DESTROYED", {
+          fontFamily: "monospace", fontSize: "34px", color: "#ff2200",
+          stroke: "#000000", strokeThickness: 6, fontStyle: "bold",
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(300);
+        title.setShadow(0, 0, "#ff4400", 12, true, true);
+        const sub = this.add.text(x, y + 28, "THE FRACTURE STATION IS LOST", {
+          fontFamily: "monospace", fontSize: "16px", color: "#ff8844",
+          stroke: "#000000", strokeThickness: 3,
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(300);
+        this.time.delayedCall(2200, () => this._onGameOver());
+      },
+    });
+  }
+
   private _onGameOver(): void {
     if (this.gameOver) return;
     this.gameOver = true;
@@ -823,8 +1018,15 @@ export class MainScene extends Phaser.Scene {
     this.missionUI?.destroy(); this.weaponVisual?.destroy();
   }
 
-  private _tryTriggerWave(_reason: string): void {
+  private _tryTriggerWave(reason: string): void {
     if (this.storySystem.phase !== "free" && this.storySystem.phase !== "tutorial") return;
+    // Waves ONLY start when the player WALKS INTO a room after the cooldown has
+    // already expired. Blocking the "shoot" path prevents the race condition where
+    // the cooldown hits zero while the player is already standing in a room they
+    // only passed through: one stray bullet would incorrectly start the wave there.
+    // Rule: to fight in a room you must deliberately ENTER it post-cooldown.
+    if (reason !== "enter") return;
+    if (this._waveCooldownMs > 0) return;  // rest period — let the player breathe
     if (this.storySystem.triggeredRooms.has(this._storyCtrl.currentRoomKey)) return;
     if (this.waveManager.isActive || this.boss) return;
     if (this.enemies.length + this.guards.length + this.turrets.length + this.sawblades.length + this.welders.length > 0) return;
@@ -835,7 +1037,9 @@ export class MainScene extends Phaser.Scene {
     const isTutorial = this.storySystem.phase === "tutorial";
     if (!isTutorial && (theme === "power" || theme === "armory" || theme === "hub")) return;
     this.storySystem.markTriggered(this._storyCtrl.currentRoomKey);
-    this._waveOrch.startNextWaveAfterRest();
+    // Pass the triggering room so the wave spawns THERE, even if the player walks
+    // away during the 3s wave-start telegraph.
+    this._waveOrch.startNextWaveAfterRest(col, row);
   }
 
   private _resetState(): void {
@@ -849,11 +1053,14 @@ export class MainScene extends Phaser.Scene {
     this.allAgents = []; this.deathQueue = []; this.boss = null;
     this.comboSystem?.reset(); this.missionSystem?.reset(); this.weaponVisual?.setTier(1);
     this.abilitySystem?.reset(); this.abilityShieldActive = false; this.abilityShieldTimer = 0;
-    ShootSkill.chronoActive = false; this.damageTakenThisWave = 0;
+    ShootSkill.chronoActive = false; this.damageTakenThisWave = 0; this._waveCooldownMs = 0;
+    this.iFrameTimer = 0; this.playerKnockbackVX = 0; this.playerKnockbackVY = 0;
     this.powerUpSystem?.clearAll(); this.mapObstacles?.clearAll();
     this.storySystem?.reset(); this._storyCtrl?.reset();
     this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     this.godMode = false;
+    this.reactorHp = 500; this.reactorMaxHp = 500;
+    this._reactorDmgCooldown = 0; this._reactorWarnShown50 = false; this._reactorWarnShown25 = false;
     if (this.ddaSystem) { this.ddaSystem.reset(); } else { this.ddaSystem = new DDASystem(); }
     if (this.playerPredictor) { this.playerPredictor.reset(); } else { this.playerPredictor = new PlayerPredictor(); }
   }

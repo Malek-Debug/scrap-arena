@@ -13,12 +13,13 @@ export const MAX_AGENTS = 512;
 export const PHYSICS_DEBUG = false;
 
 export function createGameConfig(scenes: Phaser.Types.Scenes.SceneType[]): Phaser.Types.Core.GameConfig {
-  return {
+  return Object.freeze({
     type: Phaser.AUTO,
     parent: "game-container",
     width: GAME_WIDTH,
     height: GAME_HEIGHT,
     backgroundColor: "#000000",
+    disableContextMenu: true,
     physics: {
       default: "arcade",
       arcade: {
@@ -26,6 +27,7 @@ export function createGameConfig(scenes: Phaser.Types.Scenes.SceneType[]): Phase
         debug: PHYSICS_DEBUG,
         tileBias: 16,
         maxEntries: 16,
+        fps: 60,
       },
     },
     scene: scenes,
@@ -37,11 +39,23 @@ export function createGameConfig(scenes: Phaser.Types.Scenes.SceneType[]): Phase
       pixelArt: true,
       antialias: false,
       roundPixels: true,
+      powerPreference: "high-performance",
+      transparent: false,
+      batchSize: 4096,
+      maxLights: 4,
+      mipmapFilter: "NEAREST",
+    },
+    input: {
+      activePointers: 2,
+      smoothFactor: 0,
+      windowEvents: true,
     },
     fps: {
       target: 60,
       forceSetTimeOut: false,
+      smoothStep: true,
     },
+    autoMobilePipeline: true,
     banner: false,
-  };
+  }) as Phaser.Types.Core.GameConfig;
 }

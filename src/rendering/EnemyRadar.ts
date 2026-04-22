@@ -50,7 +50,8 @@ export class EnemyRadar {
     playerX: number,
     playerY: number,
     camera: Phaser.Cameras.Scene2D.Camera,
-    enemies: EnemyInfo[]
+    enemies: EnemyInfo[],
+    enemyCount: number = enemies.length,
   ): void {
     this.arrowGfx.clear();
     this.minimapGfx.clear();
@@ -63,10 +64,10 @@ export class EnemyRadar {
     const centerX = GAME_WIDTH * 0.5;
     const centerY = GAME_HEIGHT * 0.5;
 
-    const alive = enemies.filter((e) => !e.isDead);
-
-    // --- Directional arrows for offscreen enemies ---
-    for (const e of alive) {
+    // --- Directional arrows for offscreen enemies (inline alive filter — no alloc) ---
+    for (let i = 0; i < enemyCount; i++) {
+      const e = enemies[i];
+      if (e.isDead) continue;
       const inView =
         e.posX >= camLeft &&
         e.posX <= camRight &&
@@ -97,7 +98,7 @@ export class EnemyRadar {
     }
 
     // --- Minimap ---
-    this.drawMinimap(playerX, playerY, alive);
+    this.drawMinimap(playerX, playerY, enemies, enemyCount);
   }
 
   destroy(): void {
@@ -168,7 +169,8 @@ export class EnemyRadar {
   private drawMinimap(
     playerX: number,
     playerY: number,
-    alive: EnemyInfo[]
+    enemies: EnemyInfo[],
+    enemyCount: number,
   ): void {
     const mx = GAME_WIDTH - MINIMAP_W - MINIMAP_PADDING;
     const my = MINIMAP_PADDING;
@@ -181,8 +183,10 @@ export class EnemyRadar {
     this.minimapGfx.lineStyle(1, 0x444444, 0.8);
     this.minimapGfx.strokeRect(mx, my, MINIMAP_W, MINIMAP_H);
 
-    // Enemy dots
-    for (const e of alive) {
+    // Enemy dots (skip dead inline)
+    for (let i = 0; i < enemyCount; i++) {
+      const e = enemies[i];
+      if (e.isDead) continue;
       const dotX = mx + e.posX * MINIMAP_SCALE_X;
       const dotY = my + e.posY * MINIMAP_SCALE_Y;
       const color = TYPE_COLORS[e.type] ?? 0xffffff;

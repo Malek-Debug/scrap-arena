@@ -18,6 +18,9 @@ export class AudioManager {
   private masterGain!: GainNode;
   private warmthFilter!: BiquadFilterNode;       // LP 10 kHz — trims harshness
   private compressor!: DynamicsCompressorNode;   // safety limiter
+  // Cinematic reverb send — gives explosions / boss hits a real space
+  private _reverbBus!: GainNode;
+  private _reverbSend!: ConvolverNode;
   private muted = false;
 
   // ── Gameplay music state ─────────────────────────────────────────────────
@@ -48,6 +51,7 @@ export class AudioManager {
   private _phaserMainMusic: { stop(): void; destroy(): void } | null = null;
   private _phaserBossMusic2: { stop(): void; destroy(): void } | null = null;
   private _phaserTitleMusic2: { stop(): void; destroy(): void } | null = null;
+  private _mainMusicDuckedFromVol: number | null = null;
   private _shootThrottle = 0;
 
   // ── Singleton ────────────────────────────────────────────────────────────
@@ -121,9 +125,58 @@ export class AudioManager {
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.value = 0.12;           // 60% quieter than before
       this.masterGain.connect(this.warmthFilter);
+
+      // ── Cinematic plate reverb (industrial hangar) ────────────────────
+      // A short procedurally-generated impulse response gives big SFX a
+      // sense of physical SPACE without bloating the bundle with a wav.
+      const irLen = 0.9; // sec — feels like a metal corridor
+      const ir = this.ctx.createBuffer(2, Math.floor(this.ctx.sampleRate * irLen), this.ctx.sampleRate);
+      for (let ch = 0; ch < 2; ch++) {
+        const data = ir.getChannelData(ch);
+        for (let i = 0; i < data.length; i++) {
+          // Exponentially-decayed white noise = cheap convincing reverb tail
+          const t = i / data.length;
+          data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.5);
+        }
+      }
+      this._reverbSend = this.ctx.createConvolver();
+      this._reverbSend.buffer = ir;
+      this._reverbBus = this.ctx.createGain();
+      this._reverbBus.gain.value = 0.35;
+      this._reverbSend.connect(this._reverbBus);
+      this._reverbBus.connect(this.warmthFilter);
     } catch {
       this.ctx = null;
     }
+  }
+
+  /** Routes a node through the cinematic reverb send (in addition to dry). */
+  // @ts-ignore — reserved for future per-SFX wet sends
+  private _sendToReverb(node: AudioNode, amount = 0.5): void {
+    if (!this.ctx || !this._reverbSend) return;
+    const send = this.ctx.createGain();
+    send.gain.value = amount;
+    node.connect(send);
+    send.connect(this._reverbSend);
+  }
+
+  /**
+   * Cinematic "world bends" stinger. Big sub-bass drop + filtered noise
+   * sweep + reverb wash. Fires when the station reconfigures itself.
+   */
+  worldShift(): void {
+    if (!this.ctx) return;
+    const t = this.now;
+    // Sub drop
+    this._sweep(140, 38, 'sine', t, 1.2, 0.18);
+    // Metal stress sweep
+    this._sweep(900, 220, 'sawtooth', t + 0.1, 0.7, 0.05);
+    // Wet noise wash through reverb
+    this._reverbBoom(t, 0.6);
+    this._reverbBoom(t + 0.25, 0.4);
+    this._reverbBoom(t + 0.55, 0.25);
+    // Bell shimmer overtone
+    this._sweep(1760, 1320, 'triangle', t + 0.12, 0.55, 0.04);
   }
 
   // ==========================================================================
@@ -257,6 +310,23 @@ export class AudioManager {
     this._sweep(260, 45, 'sine', t, 0.45, 0.13);
     this._sweep(180, 70, 'sine', t, 0.3, 0.08);
     this._noise(650, 'lowpass', 0.5, t, 0.22, 0.09);
+    // Wet tail through reverb bus — gives boom a real sense of place
+    this._reverbBoom(t, 0.55);
+  }
+
+  /** Adds a short wet noise burst into the reverb bus for cinematic weight. */
+  private _reverbBoom(t: number, level = 0.4): void {
+    if (!this.ctx || !this._reverbSend) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuffer(0.18);
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 900;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(level, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    src.connect(filt).connect(g).connect(this._reverbSend);
+    src.start(t); src.stop(t + 0.2);
   }
 
   /** Thruster dash — uses real thruster SFX when loaded. */
@@ -284,22 +354,47 @@ export class AudioManager {
     if (!this.ctx) return;
     if (this._sfx('sfx_switch', 0.7)) return;
     const t = this.now;
-    for (const det of [-12, 12]) {
+    // Deep mechanical clunk — heavy sub-bass drop
+    this._sweep(90, 28, 'sine', t, 1.4, 0.15);
+    // Dual detuned oscillators sweeping up (dimension rip feel)
+    for (const det of [-20, 20]) {
       const osc = this.ctx.createOscillator();
       const g   = this.ctx.createGain();
       osc.type         = 'sine';
       osc.detune.value = det;
-      osc.frequency.setValueAtTime(220, t);
-      osc.frequency.linearRampToValueAtTime(620, t + 0.22);
-      osc.frequency.linearRampToValueAtTime(220, t + 0.48);
+      osc.frequency.setValueAtTime(180, t);
+      osc.frequency.linearRampToValueAtTime(780, t + 0.18);
+      osc.frequency.linearRampToValueAtTime(260, t + 0.42);
       g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.08, t + 0.02);
-      g.gain.setValueAtTime(0.08, t + 0.38);
-      g.gain.linearRampToValueAtTime(0, t + 0.5);
+      g.gain.linearRampToValueAtTime(0.10, t + 0.02);
+      g.gain.setValueAtTime(0.10, t + 0.32);
+      g.gain.linearRampToValueAtTime(0, t + 0.48);
       osc.connect(g).connect(this.masterGain);
       osc.start(t); osc.stop(t + 0.52);
     }
-    this._sweep(1320, 880, 'sine', t + 0.08, 0.35, 0.04); // bell overtone
+    // High metallic shimmer
+    this._sweep(2200, 1100, 'triangle', t + 0.05, 0.28, 0.03);
+    this._sweep(1320, 880,  'sine',     t + 0.10, 0.30, 0.04);
+    // Noise burst (machinery engaging)
+    this._noise(1200, 'bandpass', 0.55, t, 0.08, 0.05);
+    // Send to reverb for spatial feel
+    this._reverbBoom(t + 0.15, 0.30);
+  }
+
+  /**
+   * Reactor damage alarm — two-tone industrial siren clang.
+   * Call once per reactor hit (debounced by caller).
+   */
+  reactorAlarm(): void {
+    if (!this.ctx) return;
+    const t = this.now;
+    // Alarm sweep down: high urgency
+    this._sweep(880, 440, 'sine',     t,        0.55, 0.08);
+    this._sweep(660, 330, 'triangle', t + 0.08, 0.45, 0.06);
+    // Low metallic clank
+    this._sweep(120, 55, 'sine', t + 0.12, 0.65, 0.10);
+    // Noise crack
+    this._noise(600, 'bandpass', 0.40, t, 0.07, 0.04);
   }
 
   /** Coin/item pickup — uses real confirmation SFX when loaded. */
@@ -859,12 +954,11 @@ export class AudioManager {
 
   crossfadeToTheme(theme: 'foundry' | 'circuit'): void {
     if (!this.ctx) return;
-    // If using file music, just restart it
-    if (this._phaserMainMusic) {
-      this.stopMusic();
-      const fileMusic = this._musicFile('music_main', 0.22);
-      if (fileMusic) { this._phaserMainMusic = fileMusic; return; }
-    }
+    // Both worlds (FOUNDRY + CIRCUIT) share the same gameplay music_main track.
+    // When file-based main music is already playing, do nothing — uninterrupted
+    // continuity across the world-switch is the intended design.
+    if (this._phaserMainMusic) return;
+    // Procedural fallback path: actually swap the theme.
     this._rhythmRunning = false;
     if (this._beatTimeout !== null) { clearTimeout(this._beatTimeout); this._beatTimeout = null; }
     this._nextEventTimes = {};
@@ -963,7 +1057,16 @@ export class AudioManager {
 
   startBossMusic(): void {
     if (!this.ctx) return;
-    this.stopMusic();
+    // Duck the main world track (music_main) instead of stopping it, so
+    // it can resume seamlessly after the boss is defeated.
+    const mm = this._phaserMainMusic as unknown as { volume?: number; setVolume?: (v: number) => void } | null;
+    if (mm) {
+      this._mainMusicDuckedFromVol = typeof mm.volume === 'number' ? mm.volume : 0.22;
+      try { mm.setVolume?.(0); } catch { /* ignore */ }
+    } else {
+      // No file music; fall back to stopping procedural main loop entirely.
+      this.stopMusic();
+    }
     // Try file-based boss music first
     if (this._phaserBossMusic2) { this._stopMusicFile(this._phaserBossMusic2); this._phaserBossMusic2 = null; }
     const fileMusic = this._musicFile('music_boss', 0.28);
@@ -1010,6 +1113,12 @@ export class AudioManager {
     if (this._phaserBossMusic2) {
       this._stopMusicFile(this._phaserBossMusic2);
       this._phaserBossMusic2 = null;
+    }
+    // Restore the ducked main music if we have it
+    const mm = this._phaserMainMusic as unknown as { setVolume?: (v: number) => void } | null;
+    if (mm && this._mainMusicDuckedFromVol !== null) {
+      try { mm.setVolume?.(this._mainMusicDuckedFromVol); } catch { /* ignore */ }
+      this._mainMusicDuckedFromVol = null;
     }
     if (!this.ctx || !this._bossMusicGain) return;
     this._bossRhythmRunning = false;

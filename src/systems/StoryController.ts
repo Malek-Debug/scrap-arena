@@ -13,6 +13,9 @@ export class StoryController {
   currentRoomKey = "0,0";
   private storyHint: Phaser.GameObjects.Text | null = null;
   private godModeText: Phaser.GameObjects.Text | null = null;
+  // Tracks which room themes the player has seen so the contextual physics
+  // tutorial only fires the first time you set foot in a given biome.
+  private _themesTaught = new Set<string>();
 
   // Narrative system
   private dialogueUI: DialogueUI;
@@ -138,7 +141,7 @@ export class StoryController {
         onComplete: () => {
           overlay.destroy();
           texts.forEach(t => t.destroy());
-          this._enterFreePhase();
+          this._startTutorialInHub();
         },
       });
     });
@@ -147,11 +150,51 @@ export class StoryController {
   private _enterFreePhase(): void {
     this.storySystem.setPhase("free");
     this.storySystem.flags.powerRestored = true;
-    this._showStoryHint("◉ explore rooms — shoot or move to trigger waves  •  [B] shop", 5500);
-    // Fire the ARIA greeting narrative
+    this._showStoryHint("◉ Wave 1 CLEARED!  •  CMD CENTER unlocked ↙  •  ARMORY ↗ has the SHOP [B]  •  Explore to unlock more rooms", 7000);
     this.ctx.scene.time.delayedCall(2000, () => {
       const lines = this.storySystem.fireGreeting();
       if (lines.length > 0) this.dialogueUI.enqueue(lines);
+    });
+  }
+
+  /** Start a tutorial wave right in the HUB after intro cinematic. */
+  private _startTutorialInHub(): void {
+    this.storySystem.setPhase("tutorial");
+    this._showStoryHint("◉ TUTORIAL  •  WASD move  •  Mouse aim  •  Click / SPACE to shoot", 6000);
+    this.ctx.scene.time.delayedCall(1500, () => {
+      this.onTryTriggerWave();
+    });
+
+    // Reactor defense warning — most critical mechanic
+    this.ctx.scene.time.delayedCall(13000, () => {
+      if (this.ctx.gameOver || this.ctx.waveManager.currentWave > 1) return;
+      this._showStoryHint("⚡ REACTOR CORE — room ABOVE! CIRCUIT enemies (purple/yellow) try to DESTROY it  •  Press Q to switch worlds & defend!", 8000);
+      this._showReactorArrow();
+    });
+
+    // Shop hint
+    this.ctx.scene.time.delayedCall(25000, () => {
+      if (this.ctx.gameOver || this.ctx.waveManager.currentWave > 1) return;
+      this._showStoryHint("◉ Collect SCRAP ★ from enemies  •  Visit ARMORY [top-right ↗]  •  Press [B] to open the SHOP for upgrades", 7000);
+    });
+  }
+
+  /** Flashing arrow indicator pointing up toward the reactor. */
+  private _showReactorArrow(): void {
+    const scene = this.ctx.scene;
+    const arrow = scene.add.text(GAME_WIDTH / 2, 118, "▲  REACTOR CORE\n     Defend it!", {
+      fontFamily: "monospace", fontSize: "18px",
+      color: "#ff4444", backgroundColor: "#000000ee",
+      padding: { x: 14, y: 8 }, align: "center",
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(115).setAlpha(0);
+    scene.tweens.add({ targets: arrow, alpha: 1, duration: 300 });
+    scene.tweens.add({
+      targets: arrow, y: { from: 118, to: 110 },
+      duration: 500, yoyo: true, repeat: 7, ease: "Sine.easeInOut",
+      onComplete: () => scene.tweens.add({
+        targets: arrow, alpha: 0, duration: 600,
+        onComplete: () => arrow.destroy(),
+      }),
     });
   }
 
@@ -165,16 +208,29 @@ export class StoryController {
   private _showStoryHint(msg: string, duration = 4500): void {
     const scene = this.ctx.scene;
     if (this.storyHint) this.storyHint.destroy();
+    // Premium machine-HUD chip: amber border, dark slab, subtle pulse.
     this.storyHint = scene.add.text(GAME_WIDTH / 2, 56, msg, {
-      fontFamily: "monospace", fontSize: "13px", color: "#ffffaa",
-      backgroundColor: "#00000099", padding: { x: 10, y: 6 },
-      stroke: "#000000", strokeThickness: 2,
+      fontFamily: "monospace",
+      fontSize: "14px",
+      color: "#ffe28a",
+      backgroundColor: "#0a0d12dd",
+      padding: { x: 14, y: 8 },
+      stroke: "#000000",
+      strokeThickness: 2,
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(112).setAlpha(0);
-    scene.tweens.add({ targets: this.storyHint, alpha: 1, duration: 400 });
+    // Glow underline so it reads at a glance even mid-fight
+    const tx = this.storyHint;
+    tx.setShadow(0, 0, "#ffaa33", 8, true, true);
+    scene.tweens.add({ targets: tx, alpha: 1, duration: 260, ease: "Sine.easeOut" });
+    // Subtle living pulse on the text colour
+    const pulse = scene.tweens.add({
+      targets: tx, scale: { from: 1, to: 1.025 },
+      duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+    });
     scene.time.delayedCall(duration, () => {
-      if (this.storyHint) {
-        const t = this.storyHint;
-        scene.tweens.add({ targets: t, alpha: 0, duration: 500, onComplete: () => t.destroy() });
+      if (this.storyHint === tx) {
+        pulse.stop();
+        scene.tweens.add({ targets: tx, alpha: 0, duration: 500, onComplete: () => tx.destroy() });
         this.storyHint = null;
       }
     });
@@ -188,15 +244,38 @@ export class StoryController {
   }
 
   private _onRoomEntered(col: number, row: number): void {
+    const theme = this.ctx.mapObstacles.getRoomThemeAtCell?.(col, row);
+    // First-time biome tutorial — explains the MACHINES theme physics for the
+    // room you just walked into so the player understands how the world bends.
+    if (theme && !this._themesTaught.has(theme)) {
+      this._themesTaught.add(theme);
+      const hint = StoryController._THEME_TUTORIAL[theme];
+      if (hint) this._showStoryHint(hint, 6500);
+    }
     if (this.storySystem.phase === "free") {
       this._showStoryHint("◉ entered " + this._roomDisplayName(col, row) + "  •  act to engage", 2500);
-      const theme = this.ctx.mapObstacles.getRoomThemeAtCell?.(col, row);
       if (theme) {
         const lines = this.storySystem.fireNarrativeTrigger("room_enter", theme);
         if (lines.length > 0) this.dialogueUI.enqueue(lines);
       }
+      // Auto-trigger wave when entering a combat room
+      this.onTryTriggerWave();
     }
   }
+
+  // ─── First-visit theme tutorials (MACHINES theme) ────────────────────
+  // Each entry teaches the room's industrial physics quirk + tactical benefit.
+  private static readonly _THEME_TUTORIAL: Record<string, string> = {
+    hub:         "◉ HUB  —  safe staging bay. No enemies spawn here. Use it to regroup.",
+    power:       "◉ REACTOR CORE  —  press [X] on the core to PURGE corruption. +scrap, heals nearby drones to your side.",
+    armory:      "◉ ARMORY  —  weapon vendor. Press [B] to spend scrap on damage / fire-rate / projectile speed.",
+    control:     "◉ CMD CENTER  —  golden floor amplifies your bullet speed. Light cover, great for kiting turrets.",
+    factory:     "◉ BIO LAB  —  conveyor belts shove you SIDEWAYS. Strafe with the flow, never against it.",
+    server:      "◉ DATA LAB  —  servers grant +visibility. Slow walking, slow bullets — pick targets carefully.",
+    maintenance: "◉ SUPPLY DEPOT  —  scrap heaps everywhere. Repair props with [G] for combo + score.",
+    quarantine:  "◉ QUARANTINE  —  toxic floor drains HP per second. Get in, kill fast, get out.",
+    vault:       "◉ THE VAULT  —  zero friction floor — you slide. Lead your shots, expect to drift.",
+  };
 
   private _roomDisplayName(col: number, row: number): string {
     const theme = this.ctx.mapObstacles.getRoomThemeAtCell?.(col, row);

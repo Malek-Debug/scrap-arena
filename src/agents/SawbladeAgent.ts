@@ -32,6 +32,17 @@ export class SawbladeAgent extends BaseAgent {
   private _scene: Phaser.Scene | null = null;
   private _hitCooldownTimer: Phaser.Time.TimerEvent | null = null;
 
+  // ── Wind-up telegraph + spark trail (machine-theme) ────────────────
+  private _windupMs = 0;
+  private _isWindingUp = false;
+  private _windupTelegraph: Phaser.GameObjects.Arc | null = null;
+  private _trailTimer = 0;
+  private static readonly WINDUP_DURATION_MS = 350;
+  private static readonly TRAIL_INTERVAL_MS = 60;
+  private static readonly CHARGE_SPEED_MULT = 1.55;
+  /** True when the rusher has wound up and is now in its high-speed charge. */
+  private _charging = false;
+
   constructor(
     x: number,
     y: number,
@@ -86,11 +97,66 @@ export class SawbladeAgent extends BaseAgent {
 
     switch (current.name) {
       case "Charge": {
+        // Wind-up telegraph before charging
+        if (!this._isWindingUp && !this._charging) {
+          this._isWindingUp = true;
+          this._windupMs = 0;
+          if (this._scene && this.sprite) {
+            this._windupTelegraph = this._scene.add.circle(this.posX, this.posY, 22, 0xff3300, 0)
+              .setStrokeStyle(2, 0xff5500, 0.9)
+              .setDepth(this.sprite.depth - 1).setBlendMode(Phaser.BlendModes.ADD);
+            this._scene.tweens.add({
+              targets: this._windupTelegraph,
+              scale: 0.4, alpha: 1,
+              duration: SawbladeAgent.WINDUP_DURATION_MS,
+              ease: "Quad.easeIn",
+            });
+            this.sprite.setTint(0xff8855);
+          }
+        }
+        if (this._isWindingUp) {
+          this._windupMs += delta * 1000;
+          if (this._windupTelegraph) {
+            this._windupTelegraph.setPosition(this.posX, this.posY);
+          }
+          if (this._windupMs >= SawbladeAgent.WINDUP_DURATION_MS) {
+            this._isWindingUp = false;
+            this._charging = true;
+            if (this._windupTelegraph) { this._windupTelegraph.destroy(); this._windupTelegraph = null; }
+            if (this.sprite) this.sprite.clearTint();
+          }
+        }
         // Rush directly toward the player
         this.setTarget(this.playerRef.x, this.playerRef.y);
+
+        // Spark trail while in active charge
+        if (this._charging && this._scene) {
+          this._trailTimer += delta * 1000;
+          if (this._trailTimer >= SawbladeAgent.TRAIL_INTERVAL_MS) {
+            this._trailTimer = 0;
+            for (let i = 0; i < 3; i++) {
+              const sa = Math.random() * Math.PI * 2;
+              const spd = 60 + Math.random() * 60;
+              const sp = this._scene.add.rectangle(this.posX, this.posY, 3, 1, 0xffd070, 1)
+                .setRotation(sa).setDepth(45).setBlendMode(Phaser.BlendModes.ADD);
+              this._scene.tweens.add({
+                targets: sp,
+                x: this.posX + Math.cos(sa) * spd * 0.2,
+                y: this.posY + Math.sin(sa) * spd * 0.2 + 4,
+                alpha: 0, scaleX: 0.2,
+                duration: 220, ease: "Quad.easeOut",
+                onComplete: () => sp.destroy(),
+              });
+            }
+          }
+        }
         break;
       }
       case "Retreat": {
+        // Cancel any active wind-up / charge state
+        this._charging = false;
+        this._isWindingUp = false;
+        if (this._windupTelegraph) { this._windupTelegraph.destroy(); this._windupTelegraph = null; }
         // Back away from the player briefly
         const dx = this.posX - this.playerRef.x;
         const dy = this.posY - this.playerRef.y;
@@ -102,6 +168,7 @@ export class SawbladeAgent extends BaseAgent {
         break;
       }
       case "Patrol":
+        this._charging = false;
         if (Math.random() < 0.04) {
           this.setTarget(
             this.posX + Phaser.Math.Between(-180, 180),
@@ -114,17 +181,20 @@ export class SawbladeAgent extends BaseAgent {
 
   updateMovement(deltaMs: number): void {
     if (!this.sprite) return;
+    // Freeze during wind-up
+    if (this._isWindingUp) return;
     const dx = this.targetX - this.posX;
     const dy = this.targetY - this.posY;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < 2) return;
-    const step = this.speed * (deltaMs / 1000);
+    const effSpd = this._charging ? this.speed * SawbladeAgent.CHARGE_SPEED_MULT : this.speed;
+    const step = effSpd * (deltaMs / 1000);
     const ratio = Math.min(step / dist, 1);
     this.posX += dx * ratio;
     this.posY += dy * ratio;
     this.sprite.setPosition(this.posX, this.posY);
-    // Spin the sawblade
-    this.sprite.setRotation(this.sprite.rotation + deltaMs * 0.01);
+    // Spin the sawblade — faster while charging
+    this.sprite.setRotation(this.sprite.rotation + deltaMs * (this._charging ? 0.022 : 0.01));
   }
 
   setTarget(x: number, y: number): void {
@@ -139,6 +209,8 @@ export class SawbladeAgent extends BaseAgent {
   registerHit(): void {
     if (this.hasHitRecently) return;
     this.hasHitRecently = true;
+    // End the active charge — sawblade re-winds-up on the next pass
+    this._charging = false;
 
     if (this._scene) {
       this._hitCooldownTimer = this._scene.time.delayedCall(800, () => {
@@ -166,6 +238,7 @@ export class SawbladeAgent extends BaseAgent {
   override destroy(): void {
     this._hitCooldownTimer?.destroy();
     this._hitCooldownTimer = null;
+    if (this._windupTelegraph) { this._windupTelegraph.destroy(); this._windupTelegraph = null; }
     super.destroy();
   }
 

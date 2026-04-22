@@ -4,7 +4,7 @@ import { Action } from "../ai/Action";
 import { Consideration } from "../ai/Consideration";
 import { ContextSnapshot } from "../ai/ContextSnapshot";
 import { CurveType } from "../ai/interfaces";
-import { WORLD_WIDTH, WORLD_HEIGHT } from "../core";
+import { WORLD_WIDTH, WORLD_HEIGHT, CELL_W, CELL_H } from "../core";
 
 /** Minimal shape every heal-compatible agent must satisfy. */
 export interface HealTarget {
@@ -36,6 +36,12 @@ export class WelderAgent extends BaseAgent {
   private playerRef: { x: number; y: number };
   private _scene: Phaser.Scene | null = null;
   private allies: HealTarget[] = [];
+  /** When set, welder ignores its normal support role and rushes to destroy the reactor. */
+  reactorTarget: { x: number; y: number } | null = null;
+
+  private _stuckTimer = 0;
+  private _lastPosX = 0;
+  private _lastPosY = 0;
 
   private static readonly HEAL_RANGE = 120;
   private static readonly HEAL_AMOUNT = 5;
@@ -128,6 +134,55 @@ export class WelderAgent extends BaseAgent {
   // ── Tick ─────────────────────────────────────────────────
 
   override tick(delta: number): void {
+    // Reactor rush: route through doors, heal allies en route (teamwork!)
+    if (this.reactorTarget) {
+      // Even while rushing, heal any nearby injured ally
+      if (this.allies.length > 0) {
+        for (const ally of this.allies) {
+          if (ally.hp < ally.maxHp) {
+            const d = Math.hypot(ally.posX - this.posX, ally.posY - this.posY);
+            if (d < WelderAgent.HEAL_RANGE) {
+              ally.hp = Math.min(ally.hp + WelderAgent.HEAL_AMOUNT, ally.maxHp);
+              this.spawnHealEffect(ally.posX, ally.posY);
+              break; // heal one ally per tick
+            }
+          }
+        }
+      }
+      const dx = this.reactorTarget.x - this.posX;
+      const dy = this.reactorTarget.y - this.posY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 50) {
+        this.setTarget(
+          this.reactorTarget.x + Phaser.Math.Between(-28, 28),
+          this.reactorTarget.y + Phaser.Math.Between(-28, 28),
+        );
+      } else {
+        const ec = Math.floor(this.posX / CELL_W);
+        const er = Math.floor(this.posY / CELL_H);
+        const rc = Math.floor(this.reactorTarget.x / CELL_W);
+        const rr = Math.floor(this.reactorTarget.y / CELL_H);
+        let tx = this.reactorTarget.x, ty = this.reactorTarget.y;
+        if (ec !== rc || er !== rr) {
+          const wp = this._doorWaypoint(ec, er, rc, rr);
+          tx = wp.x; ty = wp.y;
+        }
+        this._stuckTimer += delta;
+        if (this._stuckTimer > 1500) {
+          const moved = Math.hypot(this.posX - this._lastPosX, this.posY - this._lastPosY);
+          if (moved < 20) {
+            tx += Phaser.Math.Between(-200, 200);
+            ty += Phaser.Math.Between(-200, 200);
+          }
+          this._lastPosX = this.posX;
+          this._lastPosY = this.posY;
+          this._stuckTimer = 0;
+        }
+        this.setTarget(tx, ty);
+      }
+      return;
+    }
+
     super.tick(delta);
 
     const current = this.reasoner.current;
@@ -142,6 +197,7 @@ export class WelderAgent extends BaseAgent {
           if (d <= WelderAgent.HEAL_RANGE) {
             ally.hp = Math.min(ally.hp + WelderAgent.HEAL_AMOUNT, ally.maxHp);
             this.spawnHealEffect(ally.posX, ally.posY);
+            this.spawnRepairArc(ally.posX, ally.posY);
           }
         }
         break;
@@ -175,7 +231,8 @@ export class WelderAgent extends BaseAgent {
     const dy = this.targetY - this.posY;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < 2) return;
-    const step = this.speed * (deltaMs / 1000);
+    const rushSpeed = this.reactorTarget ? this.speed * 2.0 : this.speed;
+    const step = rushSpeed * (deltaMs / 1000);
     const ratio = Math.min(step / dist, 1);
     this.posX += dx * ratio;
     this.posY += dy * ratio;
@@ -197,6 +254,25 @@ export class WelderAgent extends BaseAgent {
     return this.hp <= 0;
   }
 
+  private _doorWaypoint(
+    ec: number, er: number,
+    tc: number, tr: number,
+  ): { x: number; y: number } {
+    if (tc !== ec) {
+      const wallX = (Math.min(ec, ec + Math.sign(tc - ec)) + 1) * CELL_W;
+      const door1Y = er * CELL_H + CELL_H * 0.3;
+      const door2Y = er * CELL_H + CELL_H * 0.7;
+      const closest = Math.abs(this.posY - door1Y) < Math.abs(this.posY - door2Y) ? door1Y : door2Y;
+      return { x: wallX, y: closest };
+    } else {
+      const wallY = (Math.min(er, er + Math.sign(tr - er)) + 1) * CELL_H;
+      const door1X = ec * CELL_W + CELL_W * 0.3;
+      const door2X = ec * CELL_W + CELL_W * 0.7;
+      const closest = Math.abs(this.posX - door1X) < Math.abs(this.posX - door2X) ? door1X : door2X;
+      return { x: closest, y: wallY };
+    }
+  }
+
   // ── Visual heal effect ───────────────────────────────────
 
   private spawnHealEffect(x: number, y: number): void {
@@ -210,6 +286,38 @@ export class WelderAgent extends BaseAgent {
       duration: 400,
       ease: "Quad.easeOut",
       onComplete: () => circle.destroy(),
+    });
+  }
+
+  /** Crackling repair-arc beam between welder and ally + brief shield ring on ally. */
+  private spawnRepairArc(tx: number, ty: number): void {
+    if (!this._scene) return;
+    // Jagged welding arc
+    const gfx = this._scene.add.graphics().setDepth(99).setBlendMode(Phaser.BlendModes.ADD);
+    gfx.lineStyle(2, 0x66ffee, 0.95);
+    const segs = 5;
+    let cx = this.posX, cy = this.posY;
+    gfx.beginPath(); gfx.moveTo(cx, cy);
+    for (let i = 1; i <= segs; i++) {
+      const t = i / segs;
+      const lx = this.posX + (tx - this.posX) * t + (Math.random() - 0.5) * 8;
+      const ly = this.posY + (ty - this.posY) * t + (Math.random() - 0.5) * 8;
+      gfx.lineTo(lx, ly);
+      cx = lx; cy = ly;
+    }
+    gfx.strokePath();
+    this._scene.tweens.add({
+      targets: gfx, alpha: 0, duration: 180,
+      onComplete: () => gfx.destroy(),
+    });
+    // Shield ring on healed ally
+    const ring = this._scene.add.circle(tx, ty, 14, 0, 0)
+      .setStrokeStyle(2, 0x88ffee, 0.8)
+      .setDepth(99).setBlendMode(Phaser.BlendModes.ADD);
+    this._scene.tweens.add({
+      targets: ring, scale: 1.6, alpha: 0,
+      duration: 320, ease: "Quad.easeOut",
+      onComplete: () => ring.destroy(),
     });
   }
 

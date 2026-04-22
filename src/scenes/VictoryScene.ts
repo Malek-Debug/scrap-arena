@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { GAME_WIDTH, GAME_HEIGHT } from "../core";
 import { AudioManager } from "../audio/AudioManager";
 import { WalletManager } from "../web3/WalletManager";
+import { SecureStore } from "../core/SecureStore";
 
 const GOLD  = "#ffcc00";
 const GREEN = "#00ff88";
@@ -45,14 +46,18 @@ export class VictoryScene extends Phaser.Scene {
     AudioManager.instance.setScene(this);
     AudioManager.instance.stopMusic();
 
-    // Leaderboard persistence
+    // Leaderboard persistence (HMAC-protected via SecureStore).
+    // Synchronous "peek" gives us a leaderboard snapshot to render NOW; the
+    // verified async write happens in the background. UI hint only — never
+    // trusted for signing.
     type LeaderEntry = { score: number; wave: number; kills: number; maxCombo: number };
-    const saved: LeaderEntry[] = JSON.parse(localStorage.getItem("scrapArenaLeaders") ?? "[]");
-    const prevBest = saved.length > 0 ? saved[0].score : 0;
-    saved.push({ score, wave, kills, maxCombo });
-    saved.sort((a, b) => b.score - a.score);
-    const top3 = saved.slice(0, 3);
-    localStorage.setItem("scrapArenaLeaders", JSON.stringify(top3));
+    const existing = (SecureStore.peekUnverified<LeaderEntry[]>("scrapArenaLeaders")) ?? [];
+    const prevBest = existing.length > 0 ? (existing[0].score | 0) : 0;
+    const merged: LeaderEntry[] = [...existing, { score, wave, kills, maxCombo }]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+    void SecureStore.set("scrapArenaLeaders", merged);
+    const top3 = merged;
     const isNewRecord = score > prevBest;
     const currentRunIdx = top3.findIndex(e => e.score === score && e.wave === wave && e.kills === kills && e.maxCombo === maxCombo);
 
@@ -148,22 +153,30 @@ export class VictoryScene extends Phaser.Scene {
     const statStyle: Phaser.Types.GameObjects.Text.TextStyle = { fontFamily: "monospace", fontSize: "17px", color: CYAN };
     const statStartY = panelY + 40, lineH = 28, labelX = panelX + 20, valueX = panelX + panelW - 20;
 
-    type StatRow = [string, string, Phaser.Types.GameObjects.Text.TextStyle];
+    type StatRow = [string, string, Phaser.Types.GameObjects.Text.TextStyle, boolean?, number?];
     const rows: StatRow[] = [
-      ["Final Score:",        `${score}`,     { fontFamily: "monospace", fontSize: "19px", color: GOLD, fontStyle: "bold" }],
+      ["Final Score:",        `0`,            { fontFamily: "monospace", fontSize: "19px", color: GOLD, fontStyle: "bold" }, true, score],
       ["Waves Survived:",     `${wave}`,      statStyle],
       ["Machines Destroyed:", `${kills}`,     statStyle],
       ["Best Combo:",         `${maxCombo}x`, { fontFamily: "monospace", fontSize: "17px", color: maxCombo >= 10 ? "#ff00ff" : maxCombo >= 5 ? "#ff6600" : CYAN }],
       ["Scrap Collected:",    `${scrap}`,     statStyle],
     ];
 
-    rows.forEach(([label, value, style], i) => {
+    rows.forEach(([label, value, style, isScore, target], i) => {
       const y = statStartY + i * lineH;
       const delay = 400 + i * 180;
       const lbl = this.add.text(labelX, y, label, labelStyle).setOrigin(0, 0.5).setAlpha(0);
       const val = this.add.text(valueX, y, value, style).setOrigin(1, 0.5).setAlpha(0);
       this.tweens.add({ targets: lbl, alpha: 1, duration: 250, delay });
       this.tweens.add({ targets: val, alpha: 1, duration: 250, delay });
+      if (isScore && target && target > 0) {
+        const ctr = { v: 0 };
+        this.tweens.add({
+          targets: ctr, v: target, duration: 1200, delay: delay + 250, ease: "Cubic.easeOut",
+          onUpdate: () => val.setText(`${ctr.v | 0}`),
+          onComplete: () => val.setText(`${target}`),
+        });
+      }
     });
 
     // ── Grade badge ──

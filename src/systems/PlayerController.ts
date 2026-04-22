@@ -44,6 +44,13 @@ export class PlayerController {
   private _playerGravityVY = 0;
   private _lastRoomZone: RoomPhysicsZone | null = null;
 
+  // Momentum-based movement — current resolved velocity (lerped toward target)
+  private _velX = 0;
+  private _velY = 0;
+
+  // Footstep dust timer
+  private _footstepTimer = 0;
+
   constructor(
     ctx: GameContext,
     playerGlow: Phaser.GameObjects.Arc,
@@ -92,34 +99,33 @@ export class PlayerController {
       ctx.playerHeat = Math.max(0, ctx.playerHeat - HEAT_COOLDOWN_RATE * deltaSec);
     }
 
-    // ── Movement ─────────────────────────────────────────────────────────────
-    let vx = inp.moveX * ctx.playerStats.speed;
-    let vy = inp.moveY * ctx.playerStats.speed;
+    // ── Movement with momentum ────────────────────────────────────────────────
+    let targetVX = inp.moveX * ctx.playerStats.speed;
+    let targetVY = inp.moveY * ctx.playerStats.speed;
 
     const roomZone: RoomPhysicsZone | null =
       ctx.mapObstacles?.getRoomPhysicsAt?.(ctx.playerSprite.x, ctx.playerSprite.y) ?? null;
 
     if (roomZone) {
-      vx *= roomZone.speedMultiplier;
-      vy *= roomZone.speedMultiplier;
+      targetVX *= roomZone.speedMultiplier;
+      targetVY *= roomZone.speedMultiplier;
 
       if (roomZone.gravityPull) {
-        // Pull player toward gravity center (same logic as enemy code)
         const g = roomZone.gravityPull;
         const gdx = g.x - ctx.playerSprite.x;
         const gdy = g.y - ctx.playerSprite.y;
         const gDist = Math.sqrt(gdx * gdx + gdy * gdy);
         if (gDist > 10) {
-          vx += (gdx / gDist) * g.strength;
-          vy += (gdy / gDist) * g.strength;
+          targetVX += (gdx / gDist) * g.strength;
+          targetVY += (gdy / gDist) * g.strength;
         }
       } else {
         this._playerGravityVY = 0;
       }
 
       if (roomZone.friction && roomZone.friction < 1) {
-        vx *= roomZone.friction;
-        vy *= roomZone.friction;
+        targetVX *= roomZone.friction;
+        targetVY *= roomZone.friction;
       }
 
       if (roomZone.damagePerSec > 0) {
@@ -138,7 +144,46 @@ export class PlayerController {
       if (this._lastRoomZone) this._lastRoomZone = null;
     }
 
-    ctx.playerSprite.setVelocity(vx, vy);
+    // Lerp current velocity toward target (acceleration feel)
+    const isMoving = inp.moveX !== 0 || inp.moveY !== 0;
+    const lerpRate = isMoving ? Math.min(1, 14 * deltaSec) : Math.min(1, 11 * deltaSec);
+    this._velX += (targetVX - this._velX) * lerpRate;
+    this._velY += (targetVY - this._velY) * lerpRate;
+
+    // Apply knockback on top of movement, then decay it
+    const kx = ctx.playerKnockbackVX;
+    const ky = ctx.playerKnockbackVY;
+    const knockbackDecay = Math.max(0, 1 - 14 * deltaSec);
+    ctx.playerKnockbackVX *= knockbackDecay;
+    ctx.playerKnockbackVY *= knockbackDecay;
+    if (Math.abs(ctx.playerKnockbackVX) < 1) ctx.playerKnockbackVX = 0;
+    if (Math.abs(ctx.playerKnockbackVY) < 1) ctx.playerKnockbackVY = 0;
+
+    ctx.playerSprite.setVelocity(this._velX + kx, this._velY + ky);
+
+    // ── I-frame visual flicker ────────────────────────────────────────────────
+    if (ctx.iFrameTimer > 0) {
+      ctx.playerSprite.setAlpha(Math.sin(ctx.iFrameTimer * 0.07) > 0 ? 1 : 0.25);
+    } else {
+      ctx.playerSprite.setAlpha(1);
+    }
+
+    // ── Footstep dust particles ───────────────────────────────────────────────
+    const speed = Math.sqrt(this._velX * this._velX + this._velY * this._velY);
+    if (speed > 60) {
+      this._footstepTimer -= deltaMs;
+      if (this._footstepTimer <= 0) {
+        this._footstepTimer = 90;
+        const dust = scene.add.circle(
+          ctx.playerSprite.x + Phaser.Math.Between(-6, 6),
+          ctx.playerSprite.y + 10,
+          3 + Math.random() * 3, 0x888888, 0.55,
+        ).setDepth(8);
+        scene.tweens.add({ targets: dust, alpha: 0, scaleX: 2.5, scaleY: 2.5, y: dust.y + 8, duration: 280, ease: "Quad.easeOut", onComplete: () => dust.destroy() });
+      }
+    } else {
+      this._footstepTimer = 0;
+    }
 
     // Flip sprite toward aim direction
     if (inp.aimAngle !== undefined) {
@@ -242,9 +287,9 @@ export class PlayerController {
       this._streakAura.setAlpha(0.1 + 0.08 * Math.sin(performance.now() * 0.006));
     }
 
-    // ── Passive HP regen ──────────────────────────────────────────────────────
-    if (ctx.playerHp > 0 && ctx.playerHp < ctx.playerStats.maxHp * 0.7) {
-      ctx.playerHp = Math.min(ctx.playerStats.maxHp, ctx.playerHp + 1.5 * deltaSec);
+    // ── Passive HP regen — very slow, only in critical state ──────────────────
+    if (ctx.playerHp > 0 && ctx.playerHp < ctx.playerStats.maxHp * 0.30) {
+      ctx.playerHp = Math.min(ctx.playerStats.maxHp, ctx.playerHp + 0.4 * deltaSec);
     }
   }
 

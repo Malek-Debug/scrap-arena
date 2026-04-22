@@ -147,7 +147,7 @@ export class DimensionBackground {
 
   private initParticles(): void {
     const count = Phaser.Math.Between(30, 40); // Reduced from 50-70
-    const colors = [0xff6600, 0xff4400, 0xffaa00, 0xff8800, 0xcc4400];
+    const colors = [0xd4832a, 0xb06820, 0xee9a3a, 0xaa6224, 0xf5aa44];
 
     for (let i = 0; i < count; i++) {
       const speed = Phaser.Math.FloatBetween(8, 30);
@@ -175,13 +175,13 @@ export class DimensionBackground {
   private drawFoundryFloor(): void {
     this.floorGfx.clear();
 
-    // ── Ambient edge molten glow ──────────────────────────────
-    this.floorGfx.fillStyle(0xff4400, 0.14);
+    // ── Ambient edge industrial glow ─────────────────────────────
+    this.floorGfx.fillStyle(0xb86020, 0.14);
     this.floorGfx.fillRect(0, 0, 150, WORLD_HEIGHT);
     this.floorGfx.fillRect(WORLD_WIDTH - 150, 0, 150, WORLD_HEIGHT);
     this.floorGfx.fillRect(0, 0, WORLD_WIDTH, 120);
     this.floorGfx.fillRect(0, WORLD_HEIGHT - 120, WORLD_WIDTH, 120);
-    this.floorGfx.fillStyle(0xff6600, 0.06);
+    this.floorGfx.fillStyle(0xcc7733, 0.06);
     this.floorGfx.fillRect(0, 0, 80, WORLD_HEIGHT);
     this.floorGfx.fillRect(WORLD_WIDTH - 80, 0, 80, WORLD_HEIGHT);
 
@@ -198,7 +198,7 @@ export class DimensionBackground {
     ];
     for (const [gcx, gcy, gr, teeth] of gearDefs) {
       // Glow halo
-      this.floorGfx.fillStyle(0xff4400, 0.05);
+      this.floorGfx.fillStyle(0xaa5520, 0.06);
       this.floorGfx.fillCircle(gcx, gcy, gr * 1.6);
       // Gear body shadow
       this.floorGfx.fillStyle(0x1a0800, 0.95);
@@ -282,21 +282,21 @@ export class DimensionBackground {
       [WORLD_WIDTH, 600, WORLD_WIDTH - 140, 640, WORLD_WIDTH - 70, 780],
     ];
     // Glow layer
-    this.floorGfx.lineStyle(6, 0xff2200, 0.20);
+    this.floorGfx.lineStyle(6, 0x994411, 0.22);
     for (const [x1, y1, mx, my, x2, y2] of cracks) {
       this.floorGfx.beginPath();
       this.floorGfx.moveTo(x1, y1); this.floorGfx.lineTo(mx, my); this.floorGfx.lineTo(x2, y2);
       this.floorGfx.strokePath();
     }
     // Bright center crack
-    this.floorGfx.lineStyle(2, 0xff8800, 0.55);
+    this.floorGfx.lineStyle(2, 0xcc6622, 0.52);
     for (const [x1, y1, mx, my, x2, y2] of cracks) {
       this.floorGfx.beginPath();
       this.floorGfx.moveTo(x1, y1); this.floorGfx.lineTo(mx, my); this.floorGfx.lineTo(x2, y2);
       this.floorGfx.strokePath();
     }
     // Hot center
-    this.floorGfx.lineStyle(1, 0xffcc44, 0.40);
+    this.floorGfx.lineStyle(1, 0xddaa44, 0.38);
     for (const [x1, y1, mx, my, x2, y2] of cracks) {
       this.floorGfx.beginPath();
       this.floorGfx.moveTo(x1, y1); this.floorGfx.lineTo(mx, my); this.floorGfx.lineTo(x2, y2);
@@ -323,13 +323,13 @@ export class DimensionBackground {
     }
 
     // ── Steel plate beams (main grid) ─────────────────────────
-    this.floorGfx.lineStyle(2, 0xff4400, 0.42);
+    this.floorGfx.lineStyle(2, 0xaa5520, 0.38);
     for (let y = 0; y <= WORLD_HEIGHT; y += 120) {
       this.floorGfx.beginPath();
       this.floorGfx.moveTo(0, y); this.floorGfx.lineTo(WORLD_WIDTH, y);
       this.floorGfx.strokePath();
     }
-    this.floorGfx.lineStyle(2, 0xff4400, 0.35);
+    this.floorGfx.lineStyle(2, 0xaa5520, 0.32);
     for (let x = 0; x <= WORLD_WIDTH; x += 120) {
       this.floorGfx.beginPath();
       this.floorGfx.moveTo(x, 0); this.floorGfx.lineTo(x, WORLD_HEIGHT);
@@ -339,9 +339,9 @@ export class DimensionBackground {
     // ── Rivet dots at intersections ───────────────────────────
     for (let x = 0; x <= WORLD_WIDTH; x += 120) {
       for (let y = 0; y <= WORLD_HEIGHT; y += 120) {
-        this.floorGfx.fillStyle(0xff6600, 0.78);
+        this.floorGfx.fillStyle(0xcc7733, 0.72);
         this.floorGfx.fillCircle(x, y, 4);
-        this.floorGfx.fillStyle(0xffaa44, 0.45);
+        this.floorGfx.fillStyle(0xddaa55, 0.40);
         this.floorGfx.fillCircle(x - 1, y - 1, 1.5);
       }
     }
@@ -349,16 +349,16 @@ export class DimensionBackground {
     // ── Glowing floor vents ────────────────────────────────────
     for (let vx = 320; vx < WORLD_WIDTH; vx += 320) {
       for (let vy = 320; vy < WORLD_HEIGHT; vy += 320) {
-        this.floorGfx.fillStyle(0xff6600, 0.07);
+        this.floorGfx.fillStyle(0xcc7733, 0.07);
         this.floorGfx.fillCircle(vx, vy, 28);
-        this.floorGfx.lineStyle(2, 0xff8800, 0.62);
+        this.floorGfx.lineStyle(2, 0xcc8833, 0.58);
         this.floorGfx.beginPath();
         for (let off = -4; off <= 4; off += 4) {
           this.floorGfx.moveTo(vx - 18, vy + off);
           this.floorGfx.lineTo(vx + 18, vy + off);
         }
         this.floorGfx.strokePath();
-        this.floorGfx.lineStyle(1, 0xaa4400, 0.55);
+        this.floorGfx.lineStyle(1, 0x884422, 0.50);
         this.floorGfx.strokeRect(vx - 20, vy - 10, 40, 20);
       }
     }
@@ -367,8 +367,8 @@ export class DimensionBackground {
   private drawCircuitFloor(): void {
     this.floorGfx.clear();
 
-    // ── Ambient edge glow (circuit = blue) ───────────────────
-    this.floorGfx.fillStyle(0x0033cc, 0.10);
+    // ── Ambient edge glow (circuit = deep violet) ────────────
+    this.floorGfx.fillStyle(0x4411aa, 0.10);
     this.floorGfx.fillRect(0, 0, 130, WORLD_HEIGHT);
     this.floorGfx.fillRect(WORLD_WIDTH - 130, 0, 130, WORLD_HEIGHT);
     this.floorGfx.fillRect(0, 0, WORLD_WIDTH, 110);
@@ -377,7 +377,7 @@ export class DimensionBackground {
     // ── PCB trunk lines (wide power/ground traces) ────────────
     const trunkYs = [120, 360, 600, 840, 1080, 1320];
     const trunkXs = [160, 480, 800, 1120, 1440, 1760, 2080, 2400];
-    this.floorGfx.lineStyle(3, 0x003366, 0.48);
+    this.floorGfx.lineStyle(3, 0x2d0a55, 0.48);
     for (const ty of trunkYs) {
       this.floorGfx.beginPath();
       this.floorGfx.moveTo(0, ty); this.floorGfx.lineTo(WORLD_WIDTH, ty);
@@ -389,7 +389,7 @@ export class DimensionBackground {
       this.floorGfx.strokePath();
     }
     // Bright centre of trunks
-    this.floorGfx.lineStyle(1, 0x0066bb, 0.38);
+    this.floorGfx.lineStyle(1, 0x7722cc, 0.38);
     for (const ty of trunkYs) {
       this.floorGfx.beginPath();
       this.floorGfx.moveTo(0, ty); this.floorGfx.lineTo(WORLD_WIDTH, ty);
@@ -423,13 +423,13 @@ export class DimensionBackground {
       [1280, 600, 1440, 600, 1440, 840],
       [960,  360,  960, 600, 1120, 600],
     ];
-    this.floorGfx.lineStyle(2, 0x004499, 0.42);
+    this.floorGfx.lineStyle(2, 0x5511aa, 0.42);
     for (const [sx, sy, mx, my, ex, ey] of traceRoutes) {
       this.floorGfx.beginPath();
       this.floorGfx.moveTo(sx, sy); this.floorGfx.lineTo(mx, my); this.floorGfx.lineTo(ex, ey);
       this.floorGfx.strokePath();
     }
-    this.floorGfx.lineStyle(1, 0x0099cc, 0.32);
+    this.floorGfx.lineStyle(1, 0x9933ff, 0.32);
     for (const [sx, sy, mx, my, ex, ey] of traceRoutes) {
       this.floorGfx.beginPath();
       this.floorGfx.moveTo(sx, sy); this.floorGfx.lineTo(mx, my); this.floorGfx.lineTo(ex, ey);
@@ -439,23 +439,23 @@ export class DimensionBackground {
     // ── Solder pads at trunk intersections ────────────────────
     for (const ty of trunkYs) {
       for (const tx of trunkXs) {
-        this.floorGfx.fillStyle(0x001133, 0.85);
+        this.floorGfx.fillStyle(0x0e0022, 0.85);
         this.floorGfx.fillCircle(tx, ty, 5);
-        this.floorGfx.lineStyle(1, 0x0066aa, 0.55);
+        this.floorGfx.lineStyle(1, 0x6611cc, 0.55);
         this.floorGfx.strokeCircle(tx, ty, 5);
-        this.floorGfx.fillStyle(0x0055aa, 0.50);
+        this.floorGfx.fillStyle(0x5511aa, 0.50);
         this.floorGfx.fillCircle(tx, ty, 3);
-        this.floorGfx.fillStyle(0x88bbff, 0.35);
+        this.floorGfx.fillStyle(0xbb55ff, 0.35);
         this.floorGfx.fillCircle(tx - 1, ty - 1, 1);
       }
     }
     // Pads at trace midpoints
     for (const [, , mx, my] of traceRoutes) {
-      this.floorGfx.fillStyle(0x001133, 0.85);
+      this.floorGfx.fillStyle(0x0e0022, 0.85);
       this.floorGfx.fillCircle(mx, my, 4);
-      this.floorGfx.lineStyle(1, 0x004488, 0.50);
+      this.floorGfx.lineStyle(1, 0x5511aa, 0.50);
       this.floorGfx.strokeCircle(mx, my, 4);
-      this.floorGfx.fillStyle(0x0044aa, 0.45);
+      this.floorGfx.fillStyle(0x4411aa, 0.45);
       this.floorGfx.fillCircle(mx, my, 2);
     }
 
@@ -466,21 +466,21 @@ export class DimensionBackground {
       [1120, 840], [1760, 360],
     ];
     for (const [ncx, ncy] of clusters) {
-      this.floorGfx.fillStyle(0x0044ff, 0.05);
+      this.floorGfx.fillStyle(0x6611ee, 0.05);
       this.floorGfx.fillCircle(ncx, ncy, 55);
-      this.floorGfx.fillStyle(0x0066ff, 0.09);
+      this.floorGfx.fillStyle(0x8822ff, 0.09);
       this.floorGfx.fillCircle(ncx, ncy, 32);
-      this.floorGfx.lineStyle(2, 0x0088ff, 0.40);
+      this.floorGfx.lineStyle(2, 0x9933ff, 0.40);
       this.floorGfx.strokeCircle(ncx, ncy, 20);
-      this.floorGfx.lineStyle(1, 0x00aaff, 0.50);
+      this.floorGfx.lineStyle(1, 0xaa44ff, 0.50);
       this.floorGfx.strokeCircle(ncx, ncy, 13);
-      this.floorGfx.fillStyle(0x0055aa, 0.65);
+      this.floorGfx.fillStyle(0x5511aa, 0.65);
       this.floorGfx.fillCircle(ncx, ncy, 8);
-      this.floorGfx.fillStyle(0x0099cc, 0.80);
+      this.floorGfx.fillStyle(0x9933ff, 0.80);
       this.floorGfx.fillCircle(ncx, ncy, 5);
-      this.floorGfx.fillStyle(0x44bbff, 0.65);
+      this.floorGfx.fillStyle(0xaa55ff, 0.65);
       this.floorGfx.fillCircle(ncx, ncy, 3);
-      this.floorGfx.lineStyle(1, 0x0066aa, 0.30);
+      this.floorGfx.lineStyle(1, 0x6622cc, 0.30);
       this.floorGfx.lineBetween(ncx - 38, ncy, ncx + 38, ncy);
       this.floorGfx.lineBetween(ncx, ncy - 38, ncx, ncy + 38);
     }
@@ -495,7 +495,7 @@ export class DimensionBackground {
       for (let row = -1; ; row++) {
         const hcy = row * rowSpacing + colOffset;
         if (hcy > WORLD_HEIGHT + r) break;
-        this.floorGfx.lineStyle(1, 0x00ccff, 0.28);
+        this.floorGfx.lineStyle(1, 0xaa44ff, 0.28);
         this.floorGfx.beginPath();
         for (let i = 0; i <= 6; i++) {
           const angle = (i * Math.PI) / 3;
@@ -505,7 +505,7 @@ export class DimensionBackground {
           else this.floorGfx.lineTo(vx, vy);
         }
         this.floorGfx.strokePath();
-        this.floorGfx.fillStyle(0x00ccff, 0.50);
+        this.floorGfx.fillStyle(0xaa44ff, 0.50);
         this.floorGfx.fillCircle(hcx, hcy, 2);
       }
     }
@@ -528,20 +528,20 @@ export class DimensionBackground {
       { x: 1960, y: WORLD_HEIGHT - 64,   w: 44, h: 64, side: "top"    },
     ];
     for (const chip of chips) {
-      this.floorGfx.fillStyle(0x00112a, 0.92);
+      this.floorGfx.fillStyle(0x0d0020, 0.92);
       this.floorGfx.fillRect(chip.x, chip.y, chip.w, chip.h);
-      this.floorGfx.fillStyle(0x001f3a, 0.85);
+      this.floorGfx.fillStyle(0x12003a, 0.85);
       this.floorGfx.fillRect(chip.x + 4, chip.y + 4, chip.w - 8, chip.h - 8);
       // Chip label dot
-      this.floorGfx.fillStyle(0x003366, 0.75);
+      this.floorGfx.fillStyle(0x331166, 0.75);
       this.floorGfx.fillCircle(chip.x + chip.w / 2, chip.y + chip.h / 2, Math.min(chip.w, chip.h) / 4);
       // Notch indicator
-      this.floorGfx.fillStyle(0x0066aa, 0.5);
+      this.floorGfx.fillStyle(0x5511aa, 0.50);
       this.floorGfx.fillCircle(chip.x + 8, chip.y + 8, 3);
       // Pins
       const pinCount = chip.side === "left" || chip.side === "right"
         ? Math.floor(chip.h / 9) : Math.floor(chip.w / 9);
-      this.floorGfx.lineStyle(1, 0x0077bb, 0.70);
+      this.floorGfx.lineStyle(1, 0x7722cc, 0.70);
       for (let p = 1; p <= pinCount; p++) {
         const frac = (p / (pinCount + 1));
         if (chip.side === "right") {
@@ -558,7 +558,7 @@ export class DimensionBackground {
           this.floorGfx.lineBetween(px, chip.y, px, chip.y - 12);
         }
       }
-      this.floorGfx.lineStyle(1, 0x0066aa, 0.50);
+      this.floorGfx.lineStyle(1, 0x5511aa, 0.50);
       this.floorGfx.strokeRect(chip.x, chip.y, chip.w, chip.h);
     }
   }
@@ -635,20 +635,20 @@ export class DimensionBackground {
     const combatIntensity = enemies / 20;
 
     if (this.currentWorld === WorldType.FOUNDRY) {
-      // Simple lava glow at bottom — just 1 rect instead of 2 + streaks
+      // Industrial copper glow at bottom
       const glowH = 40 + combatIntensity * 50;
       const pulse = 0.06 + 0.08 * combatIntensity * Math.abs(Math.sin(t * 2));
-      this.combatGfx.fillStyle(0xff4400, pulse);
+      this.combatGfx.fillStyle(0xcc7733, pulse);
       this.combatGfx.fillRect(0, GAME_HEIGHT - glowH, GAME_WIDTH, glowH);
     } else {
-      // Circuit world — simplified data pulse lines
+      // Void sector — violet data pulse lines
       const lineCount = 3 + Math.floor(combatIntensity * 4);
       const lineSpeed = 1 + combatIntensity * 1.5;
       for (let i = 0; i < lineCount; i++) {
         const yOffset = ((t * lineSpeed * 60 + (i / lineCount) * GAME_HEIGHT) % GAME_HEIGHT);
         const y = GAME_HEIGHT - yOffset;
         const alpha = 0.04 + 0.08 * combatIntensity;
-        this.combatGfx.lineStyle(1, 0x00ccff, alpha);
+        this.combatGfx.lineStyle(1, 0xaa44ff, alpha);
         this.combatGfx.beginPath();
         this.combatGfx.moveTo(0, y);
         this.combatGfx.lineTo(GAME_WIDTH, y);

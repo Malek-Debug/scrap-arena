@@ -109,7 +109,7 @@ export class CombatSystem {
             this._reflectBullet(p);
             this._spawnHitSparks(p.sprite.x, p.sprite.y, 0x44ffcc);
           } else {
-            this.damagePlayer(p.damage);
+            this.damagePlayer(p.damage, p.sprite.x, p.sprite.y);
             this._spawnHitSparks(p.sprite.x, p.sprite.y, 0xff4400);
           }
           ShootSkill.recycleProjectile(p);
@@ -123,7 +123,7 @@ export class CombatSystem {
         const dx = guard.posX - ctx.playerSprite.x;
         const dy = guard.posY - ctx.playerSprite.y;
         if (dx * dx + dy * dy < 600) {
-          this.damagePlayer(12);
+          this.damagePlayer(12, guard.posX, guard.posY);
           ctx.contactDamageCooldown = 600;
           Juice.screenShake(ctx.scene, 0.01, 150);
           const warn = ctx.scene.add.text(guard.posX, guard.posY - 20, "⚠ BREACH!", {
@@ -141,7 +141,7 @@ export class CombatSystem {
         const dx = enemy.posX - ctx.playerSprite.x;
         const dy = enemy.posY - ctx.playerSprite.y;
         if (dx * dx + dy * dy < 900) {
-          this.damagePlayer(5);
+          this.damagePlayer(5, enemy.posX, enemy.posY);
           ctx.contactDamageCooldown = 500;
           Juice.screenShake(ctx.scene, 0.006, 100);
           break;
@@ -155,7 +155,7 @@ export class CombatSystem {
         const dx = saw.posX - ctx.playerSprite.x;
         const dy = saw.posY - ctx.playerSprite.y;
         if (dx * dx + dy * dy < 1024) {
-          this.damagePlayer(saw.contactDamage);
+          this.damagePlayer(saw.contactDamage, saw.posX, saw.posY);
           saw.registerHit();
           ctx.contactDamageCooldown = 300;
           Juice.screenShake(ctx.scene, 0.01, 150);
@@ -170,7 +170,7 @@ export class CombatSystem {
       const dx = ctx.boss.posX - ctx.playerSprite.x;
       const dy = ctx.boss.posY - ctx.playerSprite.y;
       if (dx * dx + dy * dy < 900) {
-        this.damagePlayer(10);
+        this.damagePlayer(10, ctx.boss.posX, ctx.boss.posY);
         ctx.contactDamageCooldown = 400;
         Juice.screenShake(ctx.scene, 0.01, 150);
       }
@@ -186,9 +186,10 @@ export class CombatSystem {
     }
   }
 
-  damagePlayer(amount: number): void {
+  damagePlayer(amount: number, sourceX?: number, sourceY?: number): void {
     const ctx = this.ctx;
     if (ctx.godMode) return;
+    if (ctx.iFrameTimer > 0) return;  // I-frames: immune right after being hit
     if (ctx.abilityShieldActive) return;
     if (ctx.playerShielded) {
       amount *= 0.8;
@@ -199,15 +200,41 @@ export class CombatSystem {
     ctx.playerHp = Math.max(0, ctx.playerHp - finalDmg);
     ctx.damageTakenThisWave += finalDmg;
 
+    // Grant i-frames (350ms after taking any hit)
+    ctx.iFrameTimer = 350;
+
+    // Knockback — push player away from damage source
+    if (sourceX !== undefined && sourceY !== undefined) {
+      const kdx = ctx.playerSprite.x - sourceX;
+      const kdy = ctx.playerSprite.y - sourceY;
+      const kDist = Math.sqrt(kdx * kdx + kdy * kdy);
+      if (kDist > 0) {
+        const kStrength = 240;
+        ctx.playerKnockbackVX = (kdx / kDist) * kStrength;
+        ctx.playerKnockbackVY = (kdy / kDist) * kStrength;
+      } else {
+        // Default knockback upward if source is at same position
+        ctx.playerKnockbackVX = 0;
+        ctx.playerKnockbackVY = -200;
+      }
+    }
+
     this.onBreakStreak?.();
 
     AudioManager.instance.playerHit();
-    Juice.screenShake(ctx.scene, 0.005, 80);
+    Juice.screenShake(ctx.scene, 0.012, 180);
     this.deps.fractureFX?.onPlayerDamage();
 
-    ctx.playerSprite.setTint(0xff0000);
-    ctx.scene.time.delayedCall(80, () => {
-      if (ctx.playerSprite?.active) ctx.playerSprite.clearTint();
+    // Red tint + scale punch for immediate impact feel
+    ctx.playerSprite.setTint(0xff2200);
+    ctx.scene.tweens.add({
+      targets: ctx.playerSprite,
+      scaleX: ctx.playerSprite.scaleX * 1.18,
+      scaleY: ctx.playerSprite.scaleY * 1.18,
+      duration: 55, yoyo: true, ease: "Power2",
+      onComplete: () => {
+        if (ctx.playerSprite?.active) ctx.playerSprite.clearTint();
+      },
     });
 
     this._spawnDamageNumber(ctx.playerSprite.x, ctx.playerSprite.y - 20, finalDmg);

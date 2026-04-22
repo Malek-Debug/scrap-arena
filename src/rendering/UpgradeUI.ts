@@ -66,48 +66,104 @@ export class UpgradeUI {
 
     const capped = upgrades.slice(0, 5);
 
-    // Dark overlay
+    // ── Full-screen dark overlay ──────────────────────────────────────────────
     const overlay = this.scene.add
-      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.85)
-      .setDepth(DEPTH)
-      .setScrollFactor(0);
+      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0)
+      .setDepth(DEPTH - 2).setScrollFactor(0);
     this.elements.push(overlay);
+    this.scene.tweens.add({ targets: overlay, alpha: 0.88, duration: 220 });
 
-    // Title
+    // ── Centered panel backdrop ───────────────────────────────────────────────
+    const panelH = 510;
+    const panelY = GAME_HEIGHT / 2 - 10; // slightly above centre
+    const panelTop = panelY - panelH / 2; // ≈ 95
+    const panelBg = this.scene.add
+      .rectangle(GAME_WIDTH / 2, panelY, 1180, panelH, 0x080818, 0)
+      .setDepth(DEPTH - 1).setScrollFactor(0)
+      .setStrokeStyle(1, 0x00ff8844, 1);
+    this.elements.push(panelBg);
+    this.scene.tweens.add({ targets: panelBg, alpha: 0.97, duration: 260 });
+
+    // Top accent line
+    const topAccent = this.scene.add.graphics().setScrollFactor(0).setDepth(DEPTH - 1).setAlpha(0.6);
+    topAccent.lineStyle(2, 0x00ff88, 0.55);
+    topAccent.lineBetween(130, panelTop + 2, GAME_WIDTH - 130, panelTop + 2);
+    this.elements.push(topAccent);
+
+    // Corner brackets
+    const corners = this.scene.add.graphics().setScrollFactor(0).setDepth(DEPTH - 1).setAlpha(0.5);
+    corners.lineStyle(2, 0x00ff88, 0.7);
+    const cLen = 18;
+    // Top-left
+    corners.lineBetween(130, panelTop + 2, 130 + cLen, panelTop + 2);
+    corners.lineBetween(130, panelTop + 2, 130, panelTop + 2 + cLen);
+    // Top-right
+    corners.lineBetween(GAME_WIDTH - 130, panelTop + 2, GAME_WIDTH - 130 - cLen, panelTop + 2);
+    corners.lineBetween(GAME_WIDTH - 130, panelTop + 2, GAME_WIDTH - 130, panelTop + 2 + cLen);
+    // Bottom-left
+    const panelBot = panelY + panelH / 2;
+    corners.lineBetween(130, panelBot - 2, 130 + cLen, panelBot - 2);
+    corners.lineBetween(130, panelBot - 2, 130, panelBot - 2 - cLen);
+    // Bottom-right
+    corners.lineBetween(GAME_WIDTH - 130, panelBot - 2, GAME_WIDTH - 130 - cLen, panelBot - 2);
+    corners.lineBetween(GAME_WIDTH - 130, panelBot - 2, GAME_WIDTH - 130, panelBot - 2 - cLen);
+    this.elements.push(corners);
+
+    // ── Title ─────────────────────────────────────────────────────────────────
+    const titleY = panelTop + 48;
     const title = this.scene.add
-      .text(GAME_WIDTH / 2, 50, "⚙ UPGRADE SYSTEMS ⚙", {
-        fontFamily: FONT,
-        fontSize: "32px",
-        color: COL.green,
-        fontStyle: "bold",
-        stroke: "#003322",
-        strokeThickness: 6,
+      .text(GAME_WIDTH / 2, titleY, "⚙  UPGRADE SYSTEMS  ⚙", {
+        fontFamily: FONT, fontSize: "32px", color: COL.green,
+        fontStyle: "bold", stroke: "#002211", strokeThickness: 6,
       })
-      .setOrigin(0.5)
-      .setDepth(DEPTH)
-      .setScrollFactor(0);
+      .setOrigin(0.5).setDepth(DEPTH).setScrollFactor(0).setAlpha(0);
+    title.setShadow(0, 0, "#00ff88", 18, true, true);
     this.elements.push(title);
+    this.scene.tweens.add({ targets: title, alpha: 1, duration: 300, delay: 80 });
 
-    // Scrap display
+    // ── Scrap display (gold pill) ─────────────────────────────────────────────
+    const scrapY = titleY + 52;
+    const scrapPill = this.scene.add.graphics().setScrollFactor(0).setDepth(DEPTH - 1).setAlpha(0);
+    scrapPill.fillStyle(0x1a1000, 0.92);
+    scrapPill.fillRoundedRect(GAME_WIDTH / 2 - 96, scrapY - 16, 192, 32, 8);
+    scrapPill.lineStyle(1, 0xffcc0066, 1);
+    scrapPill.strokeRoundedRect(GAME_WIDTH / 2 - 96, scrapY - 16, 192, 32, 8);
+    this.elements.push(scrapPill);
+
     const scrapText = this.scene.add
-      .text(GAME_WIDTH / 2, 95, `⬡ SCRAP: ${scrap}`, {
-        fontFamily: FONT,
-        fontSize: "20px",
-        color: COL.scrap,
+      .text(GAME_WIDTH / 2, scrapY, `⬡  SCRAP: ${scrap}`, {
+        fontFamily: FONT, fontSize: "18px", color: COL.scrap, fontStyle: "bold",
       })
-      .setOrigin(0.5)
-      .setDepth(DEPTH)
-      .setScrollFactor(0);
+      .setOrigin(0.5).setDepth(DEPTH).setScrollFactor(0).setAlpha(0);
+    scrapText.setShadow(0, 0, "#ffcc00", 8, true, true);
     this.elements.push(scrapText);
+    this.scene.tweens.add({ targets: [scrapPill, scrapText], alpha: 1, duration: 300, delay: 120 });
 
-    // Card layout
+    // ── Instruction hint ─────────────────────────────────────────────────────
+    const hintY = scrapY + 36;
+    const hintText = this.scene.add
+      .text(GAME_WIDTH / 2, hintY, "KEYS [1–5] OR CLICK TO SELECT  ·  [ESC] TO SKIP", {
+        fontFamily: FONT, fontSize: "11px", color: "#3a5544",
+      })
+      .setOrigin(0.5).setDepth(DEPTH).setScrollFactor(0).setAlpha(0);
+    this.elements.push(hintText);
+    this.scene.tweens.add({ targets: hintText, alpha: 1, duration: 300, delay: 150 });
+
+    // ── Header separator ─────────────────────────────────────────────────────
+    const sepY = hintY + 22;
+    const sepLine = this.scene.add.graphics().setScrollFactor(0).setDepth(DEPTH - 1).setAlpha(0.45);
+    sepLine.lineStyle(1, 0x00ff8833, 1);
+    sepLine.lineBetween(130, sepY, GAME_WIDTH - 130, sepY);
+    this.elements.push(sepLine);
+
+    // ── Cards ─────────────────────────────────────────────────────────────────
     const cardW = 210;
-    const cardH = 260;
+    const cardH = 230;
     const gap = 16;
     const count = capped.length;
     const totalW = count * cardW + (count - 1) * gap;
     const startX = (GAME_WIDTH - totalW) / 2 + cardW / 2;
-    const cardY = GAME_HEIGHT / 2 - 10;
+    const cardY = sepY + 20 + cardH / 2; // top-of-card = sepY+20
 
     capped.forEach((upgrade, i) => {
       const cx = startX + i * (cardW + gap);
@@ -116,145 +172,143 @@ export class UpgradeUI {
       const typeColor = UPGRADE_COLORS[upgrade.id] ?? 0x00ff88;
       const typeColorHex = UPGRADE_COLOR_HEX[upgrade.id] ?? COL.green;
       const icon = UPGRADE_ICONS[upgrade.id] ?? "◈";
-      const borderColor = maxed ? 0x555555 : affordable ? typeColor : 0x555555;
+      const borderColor = maxed ? 0x333333 : affordable ? typeColor : 0x444444;
+      const stagger = 180 + i * 80;
+
+      // Outer glow for affordable cards
+      if (affordable) {
+        const glowRect = this.scene.add
+          .rectangle(cx, cardY, cardW + 8, cardH + 8, typeColor, 0.07)
+          .setDepth(DEPTH - 1).setScrollFactor(0).setAlpha(0);
+        this.elements.push(glowRect);
+        this.scene.tweens.add({ targets: glowRect, alpha: 1, duration: 300, delay: stagger });
+      }
 
       // Card background
       const cardBg = this.scene.add
         .rectangle(cx, cardY, cardW, cardH, COL.cardBg)
-        .setDepth(DEPTH)
-        .setScrollFactor(0)
-        .setStrokeStyle(2, borderColor);
+        .setDepth(DEPTH).setScrollFactor(0).setStrokeStyle(2, borderColor).setAlpha(0);
       this.elements.push(cardBg);
 
       // Number key hint
       const keyHint = this.scene.add
-        .text(cx, cardY - cardH / 2 + 18, `[${i + 1}]`, {
-          fontFamily: FONT,
-          fontSize: "14px",
+        .text(cx, cardY - cardH / 2 + 17, `[${i + 1}]`, {
+          fontFamily: FONT, fontSize: "13px",
           color: affordable ? COL.cyan : COL.dimText,
         })
-        .setOrigin(0.5)
-        .setDepth(DEPTH)
-        .setScrollFactor(0);
+        .setOrigin(0.5).setDepth(DEPTH).setScrollFactor(0).setAlpha(0);
       this.elements.push(keyHint);
 
       // Icon
       const iconText = this.scene.add
-        .text(cx, cardY - cardH / 2 + 55, icon, {
-          fontFamily: FONT,
-          fontSize: "26px",
+        .text(cx, cardY - cardH / 2 + 52, icon, {
+          fontFamily: FONT, fontSize: "28px",
           color: affordable ? typeColorHex : COL.dimText,
         })
-        .setOrigin(0.5)
-        .setDepth(DEPTH)
-        .setScrollFactor(0);
+        .setOrigin(0.5).setDepth(DEPTH).setScrollFactor(0).setAlpha(0);
       this.elements.push(iconText);
 
       // Name
       const nameText = this.scene.add
-        .text(cx, cardY - cardH / 2 + 90, upgrade.name, {
-          fontFamily: FONT,
-          fontSize: "16px",
+        .text(cx, cardY - cardH / 2 + 87, upgrade.name, {
+          fontFamily: FONT, fontSize: "15px",
           color: affordable ? typeColorHex : COL.dimText,
-          fontStyle: "bold",
-          wordWrap: { width: cardW - 20 },
-          align: "center",
+          fontStyle: "bold", wordWrap: { width: cardW - 20 }, align: "center",
         })
-        .setOrigin(0.5)
-        .setDepth(DEPTH)
-        .setScrollFactor(0);
+        .setOrigin(0.5).setDepth(DEPTH).setScrollFactor(0).setAlpha(0);
       this.elements.push(nameText);
 
       // Description
       const descText = this.scene.add
-        .text(cx, cardY - 10, upgrade.description, {
-          fontFamily: FONT,
-          fontSize: "12px",
+        .text(cx, cardY - 4, upgrade.description, {
+          fontFamily: FONT, fontSize: "11px",
           color: affordable ? COL.white : COL.dimText,
-          wordWrap: { width: cardW - 24 },
-          align: "center",
-          lineSpacing: 4,
+          wordWrap: { width: cardW - 24 }, align: "center", lineSpacing: 3,
         })
-        .setOrigin(0.5)
-        .setDepth(DEPTH)
-        .setScrollFactor(0);
+        .setOrigin(0.5).setDepth(DEPTH).setScrollFactor(0).setAlpha(0);
       this.elements.push(descText);
 
+      // Inner card separator
+      const innerSep = this.scene.add
+        .rectangle(cx, cardY + cardH / 2 - 68, cardW - 32, 1, borderColor, 0.35)
+        .setDepth(DEPTH).setScrollFactor(0).setAlpha(0);
+      this.elements.push(innerSep);
+
       // Level
-      const levelStr = maxed
-        ? "MAX LEVEL"
-        : `Lv ${upgrade.currentLevel} → ${upgrade.currentLevel + 1}`;
+      const levelStr = maxed ? "MAX LEVEL" : `Lv ${upgrade.currentLevel} → ${upgrade.currentLevel + 1}`;
       const levelText = this.scene.add
-        .text(cx, cardY + cardH / 2 - 55, levelStr, {
-          fontFamily: FONT,
-          fontSize: "13px",
+        .text(cx, cardY + cardH / 2 - 50, levelStr, {
+          fontFamily: FONT, fontSize: "12px",
           color: maxed ? COL.scrap : affordable ? COL.cyan : COL.dimText,
         })
-        .setOrigin(0.5)
-        .setDepth(DEPTH)
-        .setScrollFactor(0);
+        .setOrigin(0.5).setDepth(DEPTH).setScrollFactor(0).setAlpha(0);
       this.elements.push(levelText);
 
       // Cost
       const costStr = maxed ? "---" : `⬡ ${upgrade.cost}`;
       const costText = this.scene.add
-        .text(cx, cardY + cardH / 2 - 30, costStr, {
-          fontFamily: FONT,
-          fontSize: "14px",
+        .text(cx, cardY + cardH / 2 - 28, costStr, {
+          fontFamily: FONT, fontSize: "16px",
           color: affordable ? COL.scrap : COL.dimText,
           fontStyle: "bold",
         })
-        .setOrigin(0.5)
-        .setDepth(DEPTH)
-        .setScrollFactor(0);
+        .setOrigin(0.5).setDepth(DEPTH).setScrollFactor(0).setAlpha(0);
       this.elements.push(costText);
 
-      // Interactivity
+      // Staggered fade-in for all card elements
+      const cardGroup = [cardBg, keyHint, iconText, nameText, descText, innerSep, levelText, costText];
+      this.scene.tweens.add({ targets: cardGroup, alpha: 1, duration: 300, delay: stagger, ease: "Power2" });
+
+      // Interactivity (affordable only)
       if (affordable) {
         cardBg.setInteractive({ useHandCursor: true });
         cardBg.on("pointerover", () => {
-          cardBg.setFillStyle(0x2a2a4e);
-          cardBg.setScale(1.05);
+          cardBg.setFillStyle(0x1e2040);
+          cardBg.setStrokeStyle(3, typeColor);
+          cardBg.setScale(1.04);
+          iconText.setScale(1.1);
         });
         cardBg.on("pointerout", () => {
           cardBg.setFillStyle(COL.cardBg);
+          cardBg.setStrokeStyle(2, borderColor);
           cardBg.setScale(1.0);
+          iconText.setScale(1.0);
         });
-        cardBg.on("pointerdown", () => {
-          onSelect(upgrade.id);
-        });
+        cardBg.on("pointerdown", () => { onSelect(upgrade.id); });
       }
     });
 
-    // Skip button
-    const skipW = 160;
-    const skipH = 44;
-    const skipY = GAME_HEIGHT - 60;
+    // ── Footer separator ─────────────────────────────────────────────────────
+    const botSepY = cardY + cardH / 2 + 18;
+    const botSep = this.scene.add.graphics().setScrollFactor(0).setDepth(DEPTH - 1).setAlpha(0.4);
+    botSep.lineStyle(1, 0x00ff8833, 1);
+    botSep.lineBetween(130, botSepY, GAME_WIDTH - 130, botSepY);
+    this.elements.push(botSep);
+
+    // ── Skip button (below cards, well clear of HUD) ──────────────────────────
+    const skipH = 40;
+    const skipY = botSepY + skipH / 2 + 14;
     const skipBg = this.scene.add
-      .rectangle(GAME_WIDTH / 2, skipY, skipW, skipH, 0x332222)
-      .setDepth(DEPTH)
-      .setScrollFactor(0)
-      .setStrokeStyle(2, 0xff6655)
-      .setInteractive({ useHandCursor: true });
+      .rectangle(GAME_WIDTH / 2, skipY, 188, skipH, 0x150505)
+      .setDepth(DEPTH).setScrollFactor(0)
+      .setStrokeStyle(2, 0xff4433)
+      .setInteractive({ useHandCursor: true })
+      .setAlpha(0);
     this.elements.push(skipBg);
 
     const skipLabel = this.scene.add
       .text(GAME_WIDTH / 2, skipY, "SKIP  [ESC]", {
-        fontFamily: FONT,
-        fontSize: "18px",
-        color: COL.skip,
-        fontStyle: "bold",
+        fontFamily: FONT, fontSize: "16px", color: COL.skip, fontStyle: "bold",
       })
-      .setOrigin(0.5)
-      .setDepth(DEPTH)
-      .setScrollFactor(0);
+      .setOrigin(0.5).setDepth(DEPTH).setScrollFactor(0).setAlpha(0);
     this.elements.push(skipLabel);
+    this.scene.tweens.add({ targets: [skipBg, skipLabel], alpha: 1, duration: 300, delay: 420 });
 
-    skipBg.on("pointerover", () => { skipBg.setFillStyle(0x552233); skipBg.setScale(1.05); });
-    skipBg.on("pointerout", () => { skipBg.setFillStyle(0x332222); skipBg.setScale(1.0); });
+    skipBg.on("pointerover", () => { skipBg.setFillStyle(0x3a1010); skipBg.setStrokeStyle(2, 0xff6655); });
+    skipBg.on("pointerout", () => { skipBg.setFillStyle(0x150505); skipBg.setStrokeStyle(2, 0xff4433); });
     skipBg.on("pointerdown", () => onSkip());
 
-    // Keyboard support
+    // ── Keyboard support ──────────────────────────────────────────────────────
     this.keyHandler = (e: KeyboardEvent) => {
       if (!this.isVisible) return;
       const key = e.key;
@@ -268,9 +322,7 @@ export class UpgradeUI {
       if (num >= 1 && num <= capped.length) {
         const upgrade = capped[num - 1];
         const affordable = scrap >= upgrade.cost && upgrade.currentLevel < upgrade.maxLevel;
-        if (affordable) {
-          onSelect(upgrade.id);
-        }
+        if (affordable) onSelect(upgrade.id);
       }
     };
     window.addEventListener("keydown", this.keyHandler);

@@ -36,6 +36,7 @@ export class BossAgent {
   private _shootTimer = 0;
   private _shakeTimer = 0;
   private _mineTimer = 0;
+  private _missileTimer = 0;
   private _orbitAngle = 0;
   private _prevPhase: 1 | 2 | 3 | 4 = 1;
 
@@ -65,8 +66,8 @@ export class BossAgent {
 
     this.shootSkill = new ShootSkill(this.id, {
       damage: 15,
-      speed: 250,
-      range: 600,
+      speed: 340,
+      range: 700,
       tint: 0xff0000,
     }, 400);
   }
@@ -164,19 +165,16 @@ export class BossAgent {
     if (this._shootTimer >= cooldown && this._scene) {
       this._shootTimer = 0;
 
-      // Phases 2+: use PlayerPredictor for adaptive lead shots, fallback to velocity intercept
+      // Phases 2+: proper ballistic intercept. Uses BULLET SPEED and distance
+      // to compute exactly how far to lead, then iterates once to refine the
+      // predicted point (2-step fixed-point intercept). This replaces the
+      // previous fixed-ms predictor which was either too short or too long
+      // depending on how far the player was from the boss.
       let aimAngle = directAngle;
       if (p >= 2) {
-        if (this.predictor) {
-          const leadMs = p >= 3 ? 600 : 400;
-          const pred = this.predictor.predictedPosition(leadMs);
-          aimAngle = Math.atan2(pred.y - this.posY, pred.x - this.posX);
-        } else {
-          const playerBody = (this.playerRef as Phaser.Physics.Arcade.Sprite).body as Phaser.Physics.Arcade.Body | null;
-          const pVx = playerBody?.velocity.x ?? 0;
-          const pVy = playerBody?.velocity.y ?? 0;
-          aimAngle = SteeringBehaviors.interceptAngle(this.posX, this.posY, this.playerRef.x, this.playerRef.y, pVx, pVy, 250);
-        }
+        const bulletSpeed = 340; // Matches ShootSkill cfg.speed in the constructor
+        const { vx: pVx, vy: pVy } = this._resolvePlayerVelocity();
+        aimAngle = this._ballisticAim(this.posX, this.posY, this.playerRef.x, this.playerRef.y, pVx, pVy, bulletSpeed);
       }
 
       switch (p) {
@@ -216,12 +214,22 @@ export class BossAgent {
       }
     }
 
-    // ── Mine drops (phase 4 only) ─────────────────────────
-    if (p === 4 && this._scene) {
+    // ── Mine drops (phase 3 + 4) — phase 4 is faster ─────────────────
+    if ((p === 3 || p === 4) && this._scene) {
       this._mineTimer += delta * 1000;
-      if (this._mineTimer >= 2200) {
+      const mineInterval = p === 4 ? 2000 : 3200;
+      if (this._mineTimer >= mineInterval) {
         this._mineTimer = 0;
         this._dropMine(this.posX, this.posY);
+      }
+    }
+
+    // ── Phase 4 homing missile pulse every ~1.6s ──────────────────────
+    if (p === 4 && this._scene) {
+      this._missileTimer += delta * 1000;
+      if (this._missileTimer >= 1600) {
+        this._missileTimer = 0;
+        this._launchHomingMissile(directAngle);
       }
     }
 
@@ -284,6 +292,32 @@ export class BossAgent {
   }
 
   // ── Private helpers ─────────────────────────────────────
+
+  /** Phase 4 — fires a fast leading "missile" (heavy bullet) toward predicted player pos. */
+  private _launchHomingMissile(directAngle: number): void {
+    if (!this._scene) return;
+    // Proper ballistic intercept with the missile's own speed. The old code used
+    // predictor.predictedPosition(900) which made the missile over-lead close
+    // targets and under-lead distant ones.
+    const missileSpeed = 440;
+    const { vx: pVx, vy: pVy } = this._resolvePlayerVelocity();
+    const aimAngle = this._ballisticAim(this.posX, this.posY, this.playerRef.x, this.playerRef.y, pVx, pVy, missileSpeed, directAngle);
+    // Telegraph plume from boss
+    const plume = this._scene.add.circle(
+      this.posX + Math.cos(aimAngle) * 20,
+      this.posY + Math.sin(aimAngle) * 20,
+      18, 0xff66aa, 1,
+    ).setDepth(50).setBlendMode(Phaser.BlendModes.ADD);
+    this._scene.tweens.add({
+      targets: plume, scale: 3.5, alpha: 0, duration: 260,
+      onComplete: () => plume.destroy(),
+    });
+    // Heavy slug with bigger tint + bigger range
+    ShootSkill.fireImmediate(this.posX, this.posY, aimAngle, {
+      damage: 25, range: 900, speed: missileSpeed, tint: 0xff44aa, ownerId: this.id,
+    });
+    this._scene.cameras.main.shake(140, 0.007);
+  }
 
   private _dropMine(x: number, y: number): void {
     if (!this._scene) return;
@@ -352,6 +386,49 @@ export class BossAgent {
     }
 
     this._scene.cameras.main.shake(300, 0.018);
+  }
+
+  // ── Ballistic intercept helpers ─────────────────────────
+  // Pulls the player's velocity from the bound sprite body. Falls back to 0,0
+  // for the case where the ref isn't a physics sprite (tests / dev mode).
+  private _resolvePlayerVelocity(): { vx: number; vy: number } {
+    const body = (this.playerRef as Phaser.Physics.Arcade.Sprite).body as Phaser.Physics.Arcade.Body | null;
+    const vx = body?.velocity.x ?? 0;
+    const vy = body?.velocity.y ?? 0;
+    return { vx, vy };
+  }
+
+  // Two-iteration intercept: first pass leads using distance/speed, second pass
+  // re-computes lead time to the already-predicted point. This is a fixed-point
+  // iteration that converges fast for the motion speeds in this game and is
+  // dramatically more accurate than a constant lookahead.
+  private _ballisticAim(
+    fromX: number, fromY: number,
+    targetX: number, targetY: number,
+    targetVx: number, targetVy: number,
+    projSpeed: number,
+    fallbackAngle?: number,
+  ): number {
+    if (projSpeed <= 0) return fallbackAngle ?? Math.atan2(targetY - fromY, targetX - fromX);
+    // Pass 1
+    let dx = targetX - fromX;
+    let dy = targetY - fromY;
+    let dist = Math.sqrt(dx * dx + dy * dy);
+    let t = dist / projSpeed;
+    let px = targetX + targetVx * t;
+    let py = targetY + targetVy * t;
+    // Pass 2 (refine)
+    dx = px - fromX;
+    dy = py - fromY;
+    dist = Math.sqrt(dx * dx + dy * dy);
+    t = dist / projSpeed;
+    px = targetX + targetVx * t;
+    py = targetY + targetVy * t;
+    // Clamp inside world bounds so we never aim at a spot behind a wall that
+    // the player can't physically reach.
+    px = Math.max(0, Math.min(WORLD_WIDTH, px));
+    py = Math.max(0, Math.min(WORLD_HEIGHT, py));
+    return Math.atan2(py - fromY, px - fromX);
   }
 }
 

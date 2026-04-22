@@ -7,7 +7,7 @@ import { CurveType } from "../ai/interfaces";
 import { SystemsBus } from "../core/SystemsBus";
 import { DimensionBreach } from "../ai/DimensionBreach";
 import { WorldType } from "../core/WorldManager";
-import { WORLD_WIDTH, WORLD_HEIGHT } from "../core";
+import { WORLD_WIDTH, WORLD_HEIGHT, CELL_W, CELL_H } from "../core";
 
 /**
  * GuardAgent — holds a post position. Transitions through:
@@ -38,6 +38,19 @@ export class GuardAgent extends BaseAgent {
   private playerRef: { x: number; y: number };
   private alertLevel = 0;
 
+  /** When true, positions between player and reactor to block access */
+  blockerMode = false;
+  /** Reactor position for blocker intercept — set via setBlockerMode() */
+  reactorPos: { x: number; y: number } | null = null;
+  /** Delay (ms) before this guard starts moving — used for staggered blocker spawning */
+  activationDelay = 0;
+  /** When set, guard ignores player and rushes directly to destroy the reactor. */
+  reactorTarget: { x: number; y: number } | null = null;
+
+  private _stuckTimer = 0;
+  private _lastPosX = 0;
+  private _lastPosY = 0;
+
   constructor(
     x: number,
     y: number,
@@ -62,41 +75,104 @@ export class GuardAgent extends BaseAgent {
     return { x: this.posX, y: this.posY };
   }
 
+  /** Activate blocker mode: guard intercepts player path to reactor after a delay */
+  setBlockerMode(reactorPos: { x: number; y: number }, delay = 1500): void {
+    this.blockerMode = true;
+    this.reactorPos = reactorPos;
+    this.activationDelay = delay;
+  }
+
   protected populateContext(ctx: ContextSnapshot): void {
+    // When rushing the reactor, measure distance to reactor instead of player
+    const refX = this.reactorTarget?.x ?? this.playerRef.x;
+    const refY = this.reactorTarget?.y ?? this.playerRef.y;
+
     const dxPlayer = this.playerRef.x - this.posX;
     const dyPlayer = this.playerRef.y - this.posY;
     const distPlayer = Math.sqrt(dxPlayer * dxPlayer + dyPlayer * dyPlayer);
+
+    const dxRef = refX - this.posX;
+    const dyRef = refY - this.posY;
+    const distRef = Math.sqrt(dxRef * dxRef + dyRef * dyRef);
 
     const dxPost = this.postX - this.posX;
     const dyPost = this.postY - this.posY;
     const distPost = Math.sqrt(dxPost * dxPost + dyPost * dyPost);
 
-    ctx.distanceToPlayer = Math.min(distPlayer / 500, 1);
+    ctx.distanceToPlayer = Math.min(distRef / 500, 1);
     ctx.distanceToThreat = ctx.distanceToPlayer;
     ctx.health = this.hp / this.maxHp;
-    ctx.danger = distPlayer < 200 ? 1 : distPlayer < 350 ? 0.5 : 0;
-    ctx.targetVisible = distPlayer < 300;
-    ctx.goalProgress = 1 - Math.min(distPost / 200, 1); // how close to post
+    ctx.danger = this.reactorTarget ? 0 : (distPlayer < 200 ? 1 : distPlayer < 350 ? 0.5 : 0);
+    // Reactor rushers always "see" their target
+    ctx.targetVisible = this.reactorTarget ? true : distRef < 300;
+    ctx.goalProgress = 1 - Math.min(distPost / 200, 1);
     ctx.resource = this.alertLevel;
 
-    if (ctx.targetVisible) {
-      this.alertLevel = Math.min(1, this.alertLevel + 0.4);
-      this.memory.lastKnownPlayerPos = { x: this.playerRef.x, y: this.playerRef.y };
-      SystemsBus.instance.emit("guard:alert", this.id, this.alertLevel);
-    } else {
-      this.alertLevel = Math.max(0, this.alertLevel - 0.1);
-      if (this.alertLevel < 0.05) {
-        SystemsBus.instance.emit("guard:allClear", this.id);
+    if (!this.reactorTarget) {
+      if (ctx.targetVisible) {
+        this.alertLevel = Math.min(1, this.alertLevel + 0.4);
+        this.memory.lastKnownPlayerPos = { x: this.playerRef.x, y: this.playerRef.y };
+        SystemsBus.instance.emit("guard:alert", this.id, this.alertLevel);
+      } else {
+        this.alertLevel = Math.max(0, this.alertLevel - 0.1);
+        if (this.alertLevel < 0.05) {
+          SystemsBus.instance.emit("guard:allClear", this.id);
+        }
       }
+    } else {
+      // Reactor rusher — max alert so Chase/Alert always wins the utility score
+      this.alertLevel = 1;
     }
   }
 
   override tick(delta: number): void {
+    // Stagger activation for blocker reinforcements
+    if (this.activationDelay > 0) {
+      this.activationDelay -= delta;
+      return;
+    }
+
     // Update breach — Guards are CIRCUIT world, breach into FOUNDRY
     const justBreached = this.breach.update(delta, WorldType.CIRCUIT, this.playerWorld);
     if (justBreached) {
-      // Emit event so MainScene can show breach VFX
       SystemsBus.instance.emit("guard:breach", this.id, this.posX, this.posY);
+    }
+
+    // Reactor rush: skip normal AI, route through doors to reactor
+    if (this.reactorTarget) {
+      const dx = this.reactorTarget.x - this.posX;
+      const dy = this.reactorTarget.y - this.posY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 50) {
+        this.setTarget(
+          this.reactorTarget.x + Phaser.Math.Between(-28, 28),
+          this.reactorTarget.y + Phaser.Math.Between(-28, 28),
+        );
+      } else {
+        const ec = Math.floor(this.posX / CELL_W);
+        const er = Math.floor(this.posY / CELL_H);
+        const rc = Math.floor(this.reactorTarget.x / CELL_W);
+        const rr = Math.floor(this.reactorTarget.y / CELL_H);
+        let tx = this.reactorTarget.x, ty = this.reactorTarget.y;
+        if (ec !== rc || er !== rr) {
+          const wp = this._doorWaypoint(ec, er, rc, rr);
+          tx = wp.x; ty = wp.y;
+        }
+        // Stuck detection: if barely moved in 1.5s, kick sideways
+        this._stuckTimer += delta;
+        if (this._stuckTimer > 1500) {
+          const moved = Math.hypot(this.posX - this._lastPosX, this.posY - this._lastPosY);
+          if (moved < 20) {
+            tx += Phaser.Math.Between(-200, 200);
+            ty += Phaser.Math.Between(-200, 200);
+          }
+          this._lastPosX = this.posX;
+          this._lastPosY = this.posY;
+          this._stuckTimer = 0;
+        }
+        this.setTarget(tx, ty);
+      }
+      return;
     }
 
     super.tick(delta);
@@ -116,8 +192,22 @@ export class GuardAgent extends BaseAgent {
         break;
       case "Alert":
       case "Chase": {
-        const pos = this.memory.lastKnownPlayerPos;
-        if (pos) this.setTarget(pos.x, pos.y);
+        if (this.blockerMode && this.reactorPos) {
+          const px = this.playerRef.x, py = this.playerRef.y;
+          const rx = this.reactorPos.x, ry = this.reactorPos.y;
+          const dxToPlayer = this.posX - px;
+          const dyToPlayer = this.posY - py;
+          const distToPlayer = Math.sqrt(dxToPlayer * dxToPlayer + dyToPlayer * dyToPlayer);
+          if (distToPlayer < 160) {
+            const pos = this.memory.lastKnownPlayerPos;
+            if (pos) this.setTarget(pos.x, pos.y);
+          } else {
+            this.setTarget(px + (rx - px) * 0.38, py + (ry - py) * 0.38);
+          }
+        } else {
+          const pos = this.memory.lastKnownPlayerPos;
+          if (pos) this.setTarget(pos.x, pos.y);
+        }
         break;
       }
       case "Return":
@@ -132,7 +222,8 @@ export class GuardAgent extends BaseAgent {
     const dy = this.targetY - this.posY;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < 2) return;
-    const step = this.speed * (deltaMs / 1000);
+    const rushSpeed = this.reactorTarget ? this.speed * 2.0 : this.speed;
+    const step = rushSpeed * (deltaMs / 1000);
     const ratio = Math.min(step / dist, 1);
     this.posX += dx * ratio;
     this.posY += dy * ratio;
@@ -151,6 +242,25 @@ export class GuardAgent extends BaseAgent {
 
   get isDead(): boolean {
     return this.hp <= 0;
+  }
+
+  private _doorWaypoint(
+    ec: number, er: number,
+    tc: number, tr: number,
+  ): { x: number; y: number } {
+    if (tc !== ec) {
+      const wallX = (Math.min(ec, ec + Math.sign(tc - ec)) + 1) * CELL_W;
+      const door1Y = er * CELL_H + CELL_H * 0.3;
+      const door2Y = er * CELL_H + CELL_H * 0.7;
+      const closest = Math.abs(this.posY - door1Y) < Math.abs(this.posY - door2Y) ? door1Y : door2Y;
+      return { x: wallX, y: closest };
+    } else {
+      const wallY = (Math.min(er, er + Math.sign(tr - er)) + 1) * CELL_H;
+      const door1X = ec * CELL_W + CELL_W * 0.3;
+      const door2X = ec * CELL_W + CELL_W * 0.7;
+      const closest = Math.abs(this.posX - door1X) < Math.abs(this.posX - door2X) ? door1X : door2X;
+      return { x: closest, y: wallY };
+    }
   }
 
   private static _buildActions(): Action[] {

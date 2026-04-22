@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { GAME_WIDTH, GAME_HEIGHT } from "../core";
+import { GAME_WIDTH, GAME_HEIGHT, SecureStore } from "../core";
 import { AudioManager } from "../audio/AudioManager";
 import { WalletManager } from "../web3/WalletManager";
 
@@ -163,19 +163,16 @@ export class TitleScene extends Phaser.Scene {
     }).setOrigin(0.5).setAlpha(0).setDepth(20);
     this.tweens.add({ targets: controlsHint, alpha: 0.8, duration: 500, delay: 2000 });
 
-    // ── Lore crawl ──
-    const loreText = this.add.text(cx, cy + 240, [
-      "The Machine Core has fractured.",
-      "Corruption bleeds through every system.",
-      "Only you can shut them down.",
-    ].join("\n"), {
+    // ── Lore crawl — evolving 3-act narrative beats, looping ──
+    const loreText = this.add.text(cx, cy + 240, "", {
       fontFamily: '"Courier New", Courier, monospace', fontSize: "12px",
       color: "#448855", align: "center", lineSpacing: 5,
     }).setOrigin(0.5).setAlpha(0).setDepth(20);
     this.tweens.add({ targets: loreText, alpha: 0.9, duration: 800, delay: 2600 });
+    this._startLoreLoop(loreText);
 
-    // ── Best score ──
-    const leaders = JSON.parse(localStorage.getItem("scrapArenaLeaders") ?? "[]") as { score: number }[];
+    // ── Best score (HMAC-protected; sync peek used as a UI hint only) ──
+    const leaders = (SecureStore.peekUnverified<{ score: number }[]>("scrapArenaLeaders")) ?? [];
     if (leaders.length > 0 && leaders[0].score > 0) {
       const bestLabel = this.add.text(cx, cy + 300, `HIGH  SCORE :  ${leaders[0].score}`, {
         fontFamily: '"Courier New", Courier, monospace', fontSize: "14px",
@@ -198,6 +195,14 @@ export class TitleScene extends Phaser.Scene {
 
     // ── PostFX ──
     if (!this.scene.isActive("PostFX")) this.scene.launch("PostFX");
+
+    // ── Cinematic prologue (first visit per browser session only) ──
+    try {
+      if (!sessionStorage.getItem("scrapArenaProloguePlayed")) {
+        sessionStorage.setItem("scrapArenaProloguePlayed", "1");
+        this._playPrologue();
+      }
+    } catch { /* sessionStorage unavailable — skip silently */ }
 
     // YouTube Playables: game is fully loaded and ready for interaction
     if (typeof ytgame !== "undefined") ytgame.game.gameReady();
@@ -428,6 +433,106 @@ export class TitleScene extends Phaser.Scene {
     panel.innerHTML = `<div>${message}</div>`;
     panel.classList.add("visible");
     setTimeout(() => panel.classList.remove("visible"), 5000);
+  }
+
+  private _startLoreLoop(target: Phaser.GameObjects.Text): void {
+    const beats: string[][] = [
+      ["The Machine Core has fractured.", "Corruption bleeds through every system.", "Only you can shut them down."],
+      ["Two dimensions overlap. Foundry. Circuit.", "What burns in one, sparks in the other.", "Shift between them — survive both."],
+      ["Each scrap you reclaim weakens the Core.", "Each combo you keep feeds the signal.", "The deeper you go, the louder it screams."],
+      ["The Boss waits in the final wave.", "It remembers everything you destroyed.", "It will not forgive."],
+    ];
+    let beatIdx = 0;
+    let typeTimer: Phaser.Time.TimerEvent | null = null;
+
+    const typeBeat = (): void => {
+      const lines = beats[beatIdx];
+      const full = lines.join("\n");
+      let i = 0;
+      target.setText("");
+      typeTimer?.destroy();
+      typeTimer = this.time.addEvent({
+        delay: 28, loop: true,
+        callback: () => {
+          i++;
+          target.setText(full.slice(0, i));
+          if (i >= full.length) {
+            typeTimer?.destroy(); typeTimer = null;
+            this.time.delayedCall(4500, () => {
+              if (!this.scene.isActive("TitleScene")) return;
+              this.tweens.add({
+                targets: target, alpha: 0, duration: 400,
+                onComplete: () => {
+                  beatIdx = (beatIdx + 1) % beats.length;
+                  target.setAlpha(0.9);
+                  typeBeat();
+                },
+              });
+            });
+          }
+        },
+      });
+    };
+    this.time.delayedCall(2800, typeBeat);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => typeTimer?.destroy());
+  }
+
+  private _playPrologue(): void {
+    const cx = GAME_WIDTH / 2, cy = GAME_HEIGHT / 2;
+    const veil = this.add.rectangle(cx, cy, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.92).setDepth(200);
+    const acts: { line: string; col: string; size: string }[] = [
+      { line: "ONE  THOUSAND  CYCLES  AGO ...",                              col: "#665533", size: "16px" },
+      { line: "humanity built the Machine Core",                              col: "#cc8844", size: "22px" },
+      { line: "to dream, to remember, to obey.",                              col: "#cc8844", size: "22px" },
+      { line: "Then the Core began to dream of itself.",                      col: "#ff6600", size: "26px" },
+      { line: "It fractured.  Reality split in two.",                         col: "#ff8800", size: "26px" },
+      { line: "FOUNDRY    //    CIRCUIT",                                      col: "#00ff88", size: "30px" },
+      { line: "You are the last signal it cannot silence.",                   col: "#ffdd44", size: "22px" },
+    ];
+    const texts: Phaser.GameObjects.Text[] = [];
+    let cleaned = false;
+
+    const cleanup = (): void => {
+      if (cleaned) return; cleaned = true;
+      this.tweens.add({
+        targets: [veil, ...texts], alpha: 0, duration: 500,
+        onComplete: () => { veil.destroy(); texts.forEach(t => t.destroy()); },
+      });
+    };
+
+    let lineIdx = 0;
+    const showNext = (): void => {
+      if (cleaned) return;
+      if (lineIdx >= acts.length) { this.time.delayedCall(900, cleanup); return; }
+      const act = acts[lineIdx++];
+      const t = this.add.text(cx, cy - 40 + (lineIdx - 1) * 38, "", {
+        fontFamily: '"Courier New", Courier, monospace',
+        fontSize: act.size, color: act.col, align: "center", fontStyle: "bold",
+        stroke: "#000000", strokeThickness: 4,
+        shadow: { offsetX: 0, offsetY: 0, color: act.col, blur: 14, fill: true },
+      }).setOrigin(0.5).setDepth(201).setAlpha(0);
+      texts.push(t);
+      this.tweens.add({ targets: t, alpha: 1, duration: 250 });
+      let i = 0;
+      const tt = this.time.addEvent({
+        delay: 26, loop: true,
+        callback: () => {
+          i++;
+          t.setText(act.line.slice(0, i));
+          if (i >= act.line.length) {
+            tt.destroy();
+            this.time.delayedCall(700, showNext);
+          }
+        },
+      });
+    };
+
+    // Skip-on-input
+    const skip = (): void => cleanup();
+    this.input.once("pointerdown", skip);
+    this.input.keyboard?.once("keydown", skip);
+
+    this.time.delayedCall(500, showNext);
   }
 
   private _startGame(): void {

@@ -11,6 +11,8 @@ export class VFXPool {
   private readonly scene: Phaser.Scene;
   private readonly circles: Phaser.GameObjects.Arc[] = [];
   private readonly texts: Phaser.GameObjects.Text[] = [];
+  private readonly freeCircles: Phaser.GameObjects.Arc[] = [];
+  private readonly freeTexts: Phaser.GameObjects.Text[] = [];
 
   private static readonly CIRCLE_SLOTS = 80;
   private static readonly TEXT_SLOTS   = 32;
@@ -25,6 +27,7 @@ export class VFXPool {
         .setActive(false)
         .setVisible(false);
       this.circles.push(c);
+      this.freeCircles.push(c);
     }
 
     for (let i = 0; i < VFXPool.TEXT_SLOTS; i++) {
@@ -42,23 +45,18 @@ export class VFXPool {
         .setActive(false)
         .setVisible(false);
       this.texts.push(t);
+      this.freeTexts.push(t);
     }
   }
 
-  // ── Acquisition helpers ────────────────────────────────────────────────────
+  // ── Acquisition helpers — O(1) stack pop ───────────────────────────────────
 
   private _getCircle(): Phaser.GameObjects.Arc | null {
-    for (const c of this.circles) {
-      if (!c.active) return c;
-    }
-    return null;
+    return this.freeCircles.length > 0 ? this.freeCircles.pop()! : null;
   }
 
   private _getText(): Phaser.GameObjects.Text | null {
-    for (const t of this.texts) {
-      if (!t.active) return t;
-    }
-    return null;
+    return this.freeTexts.length > 0 ? this.freeTexts.pop()! : null;
   }
 
   private _freeCircle(c: Phaser.GameObjects.Arc): void {
@@ -66,12 +64,14 @@ export class VFXPool {
     c.setActive(false).setVisible(false).setScale(1, 1).setAlpha(1);
     c.setStrokeStyle(0);
     c.setBlendMode(Phaser.BlendModes.NORMAL);
+    this.freeCircles.push(c);
   }
 
   private _freeText(t: Phaser.GameObjects.Text): void {
     this.scene.tweens.killTweensOf(t);
     t.setActive(false).setVisible(false).setScale(1, 1).setAlpha(1);
     t.setBlendMode(Phaser.BlendModes.NORMAL);
+    this.freeTexts.push(t);
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -225,5 +225,7 @@ export class VFXPool {
     for (const t of this.texts) t.destroy();
     this.circles.length = 0;
     this.texts.length = 0;
+    this.freeCircles.length = 0;
+    this.freeTexts.length = 0;
   }
 }

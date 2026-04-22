@@ -66,10 +66,10 @@ const ROOM_PHYSICS: Record<RoomTheme, Omit<RoomPhysicsZone, "col" | "row" | "the
   factory:     { speedMultiplier: 1.1,  friction: 0.92, damagePerSec: 0,   healPerSec: 0,   bulletSpeedMod: 1.0,  visibilityRadius: 0,   physicsLabel: "FACTORY FLOOR" },
   server:      { speedMultiplier: 0.85, friction: 1,    damagePerSec: 0,   healPerSec: 0,   bulletSpeedMod: 1.3,  visibilityRadius: 0,   physicsLabel: "SERVER CORE — SIGNAL BOOST" },
   power:       { speedMultiplier: 1.0,  friction: 1,    damagePerSec: 0,   healPerSec: 1,   bulletSpeedMod: 1.0,  visibilityRadius: 0,   physicsLabel: "REACTOR CORE — SAFE ZONE" },
-  control:     { speedMultiplier: 1.0,  friction: 1,    damagePerSec: 0,   healPerSec: 0,   bulletSpeedMod: 1.0,  visibilityRadius: 320, physicsLabel: "CONTROL — CAMERA STATIC" },
+  control:     { speedMultiplier: 1.0,  friction: 1,    damagePerSec: 0,   healPerSec: 0,   bulletSpeedMod: 1.0,  visibilityRadius: 0,   physicsLabel: "CMD CENTER" },
   maintenance: { speedMultiplier: 0.9,  friction: 0.7,  damagePerSec: 0,   healPerSec: 0,   bulletSpeedMod: 0.9,  visibilityRadius: 0,   physicsLabel: "MAINTENANCE — SLICK FLOOR" },
   armory:      { speedMultiplier: 1.0,  friction: 1,    damagePerSec: 0,   healPerSec: 1,   bulletSpeedMod: 1.0,  visibilityRadius: 0,   physicsLabel: "ARMORY — SAFE ZONE" },
-  quarantine:  { speedMultiplier: 0.7,  friction: 0.8,  damagePerSec: 3.5, healPerSec: 0,   bulletSpeedMod: 0.8,  visibilityRadius: 260, physicsLabel: "QUARANTINE — BIOHAZARD", windForce: { x: 22, y: 8 } },
+  quarantine:  { speedMultiplier: 0.85, friction: 0.9,  damagePerSec: 0,   healPerSec: 0,   bulletSpeedMod: 0.9,  visibilityRadius: 0,   physicsLabel: "QUARANTINE — CONTAMINATED" },
   vault:       { speedMultiplier: 1.0,  friction: 1,    damagePerSec: 0,   healPerSec: 0,   bulletSpeedMod: 1.4,  visibilityRadius: 0,   physicsLabel: "VAULT — PRECISION CORE" },
 };
 
@@ -132,16 +132,16 @@ interface ThemeDef {
 }
 
 const THEMES: Record<RoomTheme, ThemeDef> = {
-  factory:     { pool: ["lab_table","centrifuge","specimen_jar","bio_reactor","chem_hood","barrel","cooling","blast_furnace","plasma_conduit"], minCount: 5, maxCount: 9 },
-  server:      { pool: ["server_rack","server_rack","terminal","data_core","scanner","hologram_table","containment_tank"],                     minCount: 5, maxCount: 9 },
-  power:       { pool: ["bio_reactor","reactor","generator","pillar","tesla_coil","fuel_cell","plasma_conduit"],                               minCount: 4, maxCount: 7 },
-  control:     { pool: ["terminal","terminal","scanner","antenna","hologram_table","shield_pylon"],                                            minCount: 4, maxCount: 7 },
-  maintenance: { pool: ["crate","barrel","lab_table","cooling","ventilation_fan","specimen_jar","ammo_rack"],                                  minCount: 4, maxCount: 7 },
-  hub:         { pool: ["lab_table","pillar","shield_pylon","crate","specimen_jar"],                                                           minCount: 2, maxCount: 5 },
+  factory:     { pool: ["lab_table","centrifuge","specimen_jar","bio_reactor","chem_hood","barrel","cooling","blast_furnace","plasma_conduit"], minCount: 6, maxCount: 14 },
+  server:      { pool: ["server_rack","server_rack","terminal","data_core","scanner","hologram_table","containment_tank"],                     minCount: 6, maxCount: 14 },
+  power:       { pool: ["bio_reactor","reactor","generator","pillar","tesla_coil","fuel_cell","plasma_conduit"],                               minCount: 6, maxCount: 13 },
+  control:     { pool: ["terminal","terminal","scanner","antenna","hologram_table","shield_pylon"],                                            minCount: 5, maxCount: 12 },
+  maintenance: { pool: ["crate","barrel","lab_table","cooling","ventilation_fan","specimen_jar","ammo_rack"],                                  minCount: 5, maxCount: 12 },
+  hub:         { pool: ["lab_table","pillar","shield_pylon","crate","specimen_jar"],                                                           minCount: 3, maxCount: 7  },
   // ── New rooms ─────────────────────────────────────────────────────────────
-  armory:      { pool: ["pillar","shield_pylon","crate","barrel","fuel_cell","tesla_coil","workbench","ammo_rack","blast_furnace"], minCount: 5, maxCount: 8 },
-  quarantine:  { pool: ["specimen_jar","bio_reactor","chem_hood","barrel","lab_table","centrifuge","cooling","containment_tank"],  minCount: 5, maxCount: 8 },
-  vault:       { pool: ["server_rack","data_core","terminal","hologram_table","shield_pylon","pillar","containment_tank"],         minCount: 4, maxCount: 7 },
+  armory:      { pool: ["pillar","shield_pylon","crate","barrel","fuel_cell","tesla_coil","workbench","ammo_rack","blast_furnace"], minCount: 6, maxCount: 15 },
+  quarantine:  { pool: ["specimen_jar","bio_reactor","chem_hood","barrel","lab_table","centrifuge","cooling","containment_tank"],  minCount: 6, maxCount: 14 },
+  vault:       { pool: ["server_rack","data_core","terminal","hologram_table","shield_pylon","pillar","containment_tank"],         minCount: 5, maxCount: 12 },
 };
 
 const THEME_CYCLE: RoomTheme[] = ["factory", "server", "power", "control", "maintenance"];
@@ -203,11 +203,16 @@ export class MapObstacles {
     physicsBody: Phaser.GameObjects.Rectangle;
     theme: string; doorX: number; doorY: number; horiz: boolean;
   }[] = [];
+  /** AABB bounds of every active barrier — used by resolveCollision so enemies
+   *  can't pass through locked doors (same rule as walls). Cleared on unlock. */
+  private barrierBounds: { x: number; y: number; w: number; h: number; theme: string }[] = [];
   private roomPhysicsZones: RoomPhysicsZone[] = [];
   private activePropsGfx!: Phaser.GameObjects.Graphics;
   // ── Interaction points (set during room build) ──────────
   public shopTerminalPos: { x: number; y: number } | null = null;
   public reactorMachinePos: { x: number; y: number } | null = null;
+  /** Graphics layer for enemy-proximity damage overlay — updated each frame by MainScene */
+  public reactorDamageOverlay: Phaser.GameObjects.Graphics | null = null;
   // ── Boss arena wind state ───────────────────────────────
   public  bossWindForce = { x: 0, y: 0 };
   private _bossWindAngle = 0;
@@ -246,13 +251,16 @@ export class MapObstacles {
     this.cellThemes = themes;
     this._drawRoomFloors(active, themes);
     this._buildWalls(active);
-    this._buildMiniRoomInnerWalls(active, themes);
+    // Mini-room inner walls intentionally removed — Reactor Core and Armory
+    // now use the full cell height for a proper combat arena feel.
     this._addWallLights(active);
     this._addAccessBarriers(active, themes, unlockedThemes);
     this._populateRooms(active, themes, wave);
     this._addFloorDecorations(active, themes);
     this._buildRoomPhysicsZones(active, themes);
     this._addAnimatedFloorElements(active, themes);
+    // Sync all newly-added static bodies so the player collider is aware of them.
+    this.staticGroup.refresh();
   }
 
   /** Called from MainScene.update() — advances rotating boss wind each frame */
@@ -300,6 +308,11 @@ export class MapObstacles {
       const halfH = obs.h / 2 + radius;
       if (Math.abs(x - cx) < halfW && Math.abs(y - cy) < halfH) return true;
     }
+    for (const b of this.barrierBounds) {
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2;
+      if (Math.abs(x - cx) < b.w / 2 + radius && Math.abs(y - cy) < b.h / 2 + radius) return true;
+    }
     return false;
   }
 
@@ -320,6 +333,51 @@ export class MapObstacles {
           rx += dx > 0 ? overlapX : -overlapX;
         } else {
           ry += dy > 0 ? overlapY : -overlapY;
+        }
+      }
+    }
+    // Also push enemies out of locked-door barriers (barrier physics uses setPosition
+    // which bypasses Phaser physics, so we must resolve manually the same as walls).
+    for (const b of this.barrierBounds) {
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2;
+      const halfW = b.w / 2 + radius;
+      const halfH = b.h / 2 + radius;
+      const dx = rx - cx;
+      const dy = ry - cy;
+      if (Math.abs(dx) < halfW && Math.abs(dy) < halfH) {
+        const overlapX = halfW - Math.abs(dx);
+        const overlapY = halfH - Math.abs(dy);
+        if (overlapX < overlapY) {
+          rx += dx > 0 ? overlapX : -overlapX;
+        } else {
+          ry += dy > 0 ? overlapY : -overlapY;
+        }
+      }
+    }
+    return { x: rx, y: ry };
+  }
+
+  /** Barrier-only collision correction for the player.
+   *  Phaser handles obstacle walls via arcade physics; this adds a manual
+   *  safety net specifically for locked-door barriers so the player can never
+   *  cross into a locked room even if the physics step allows tunneling. */
+  resolveBarrierCollision(x: number, y: number, radius: number): { x: number; y: number } {
+    let rx = x, ry = y;
+    for (const b of this.barrierBounds) {
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2;
+      const halfW = b.w / 2 + radius;
+      const halfH = b.h / 2 + radius;
+      const dx = rx - cx;
+      const dy = ry - cy;
+      if (Math.abs(dx) < halfW && Math.abs(dy) < halfH) {
+        const overlapX = halfW - Math.abs(dx);
+        const overlapY = halfH - Math.abs(dy);
+        if (overlapX < overlapY) {
+          rx += dx >= 0 ? overlapX : -overlapX;
+        } else {
+          ry += dy >= 0 ? overlapY : -overlapY;
         }
       }
     }
@@ -576,15 +634,15 @@ export class MapObstacles {
   /** Returns a spawn position inside the same room the player is standing in. */
   private static SAFE_THEMES: Set<string> = new Set(["power", "armory", "hub"]);
 
-  getSpawnPositionInPlayerRoom(playerX: number, playerY: number, minDist: number = 200): { x: number; y: number } {
+  getSpawnPositionInPlayerRoom(playerX: number, playerY: number, minDist: number = 200, allowSafeZone = false): { x: number; y: number } {
     // Determine which grid cell the player is in
     let r = Math.max(0, Math.min(GRID_ROWS - 1, Math.floor(playerY / CELL_H)));
     let c = Math.max(0, Math.min(GRID_COLS - 1, Math.floor(playerX / CELL_W)));
 
-    // Never spawn enemies in safe-zone rooms (Reactor / Armory / HUB).
-    // If player is in one of those, find the nearest active combat room instead.
+    // Never spawn enemies in safe-zone rooms (Reactor / Armory / HUB)
+    // unless allowSafeZone is true (used for tutorial wave in HUB).
     const theme = this.cellThemes?.[r]?.[c];
-    if (!this.activeCells[r]?.[c] || !theme || MapObstacles.SAFE_THEMES.has(theme)) {
+    if (!allowSafeZone && (!this.activeCells[r]?.[c] || !theme || MapObstacles.SAFE_THEMES.has(theme))) {
       const combat = this._findNearestCombatCell(r, c);
       r = combat.r;
       c = combat.c;
@@ -698,11 +756,13 @@ export class MapObstacles {
       this.staticGroup.remove(b.physicsBody, true, true);
     }
     this.accessBarriers = this.accessBarriers.filter(b => b.theme !== theme);
+    this.barrierBounds   = this.barrierBounds.filter(b => b.theme !== theme);
   }
 
   clearAll(): void {
     this.shopTerminalPos = null;
     this.reactorMachinePos = null;
+    this.reactorDamageOverlay = null;
     for (const obs of this.obstacles) {
       obs.sprite?.destroy();
       obs.hpBar?.destroy();
@@ -721,6 +781,7 @@ export class MapObstacles {
     this.glows = [];
     this.laserHazards = [];
     this.accessBarriers = [];
+    this.barrierBounds = [];
     this.roomPhysicsZones = [];
     this.staticGroup.clear(true, true);
     this.activePropsGfx.clear();
@@ -732,34 +793,29 @@ export class MapObstacles {
 
   // ─── Grid Helpers ────────────────────────────────────────
 
-  private _computeActiveCells(wave: number): boolean[][] {
+  private _computeActiveCells(_wave: number): boolean[][] {
+    // ALL rooms are always present in the world — the barrier system controls access.
+    // Rooms are locked by access barriers until their theme is in unlockedThemes.
+    // This ensures that when _autoUnlockNextRoom announces a room unlocked, it
+    // already physically exists and the player can navigate to it.
+    //
+    //  Row 0: [REACTOR][ARMORY][void]      ← mini-rooms above hub
+    //  Row 1: [HUB]    [void]  [void]      ← player starting zone
+    //  Row 2: [CMD CTR][BIOLAB][DATALAB]   ← combat tier 1 (CMD always open)
+    //  Row 3: [QUARAN] [SUPPLY][VAULT]     ← combat tier 2 (all locked initially)
     const grid: boolean[][] = Array.from({ length: GRID_ROWS }, () =>
       Array(GRID_COLS).fill(false),
     );
 
-    // Hub [1,0] is the player's starting room — always active.
-    // Reactor Core [0,0] and Armory [0,1] are always accessible mini-rooms.
-    grid[1][0] = true;
-    grid[0][0] = true;
-    grid[0][1] = true;
-    if (wave <= 2) return grid;
-
-    // Wave 3: CMD CENTER [2,0] — directly below hub
-    grid[2][0] = true;
-    if (wave <= 3) return grid;
-
-    // Wave 4–5: BIO LAB [2,1] + DATA LAB [2,2]
-    grid[2][1] = true;
-    grid[2][2] = true;
-    if (wave <= 6) return grid;
-
-    // Wave 7–9: QUARANTINE [3,0] + SUPPLY DEPOT [3,1]
-    grid[3][0] = true;
-    grid[3][1] = true;
-    if (wave <= 9) return grid;
-
-    // Wave 10+: VAULT [3,2]
-    grid[3][2] = true;
+    grid[0][0] = true;  // REACTOR CORE  — always open
+    grid[0][1] = true;  // ARMORY        — always open
+    grid[1][0] = true;  // HUB           — player spawn
+    grid[2][0] = true;  // CMD CENTER    — always open (first combat room)
+    grid[2][1] = true;  // BIO LAB       — locked until "factory" unlocked
+    grid[2][2] = true;  // DATA LAB      — locked until "server" unlocked
+    grid[3][0] = true;  // QUARANTINE    — locked until "quarantine" unlocked
+    grid[3][1] = true;  // SUPPLY DEPOT  — locked until "maintenance" unlocked
+    grid[3][2] = true;  // VAULT         — locked until "vault" unlocked
     return grid;
   }
 
@@ -878,15 +934,13 @@ export class MapObstacles {
       }
     }
 
-    // Outer boundary walls
-    for (let c = 0; c < GRID_COLS; c++) {
-      if (active[0][c]) this._placeWall(c * CELL_W, 0, CELL_W, WALL_T);
-      if (active[GRID_ROWS - 1][c]) this._placeWall(c * CELL_W, WORLD_HEIGHT - WALL_T, CELL_W, WALL_T);
-    }
-    for (let r = 0; r < GRID_ROWS; r++) {
-      if (active[r][0]) this._placeWall(0, r * CELL_H, WALL_T, CELL_H);
-      if (active[r][GRID_COLS - 1]) this._placeWall(WORLD_WIDTH - WALL_T, r * CELL_H, WALL_T, CELL_H);
-    }
+    // Full-perimeter boundary walls — unconditional so no corner gaps regardless of
+    // which cells are active. This guarantees the player (and enemies) can never
+    // escape the playable world area.
+    this._placeWall(0,                    0,                   WORLD_WIDTH,  WALL_T);  // top
+    this._placeWall(0,                    WORLD_HEIGHT - WALL_T, WORLD_WIDTH, WALL_T);  // bottom
+    this._placeWall(0,                    0,                   WALL_T,       WORLD_HEIGHT);  // left
+    this._placeWall(WORLD_WIDTH - WALL_T, 0,                   WALL_T,       WORLD_HEIGHT);  // right
   }
 
   private _placeWall(x: number, y: number, w: number, h: number): void {
@@ -1079,7 +1133,9 @@ export class MapObstacles {
         const topLocked = topTheme !== "hub" && !unlockedThemes.has(topTheme);
         const botLocked = botTheme !== "hub" && !unlockedThemes.has(botTheme);
         if (!topLocked && !botLocked) continue;
-        const barrierTheme = topLocked ? topTheme : botTheme;
+        // When both rooms are locked, use the bottom room's theme — it unlocks later in the
+        // progression cycle, so the barrier stays until the deeper room is actually accessible.
+        const barrierTheme = botLocked ? botTheme : topTheme;
         for (const frac of [0.3, 0.7]) {
           this._createAccessBarrier(c * CELL_W + CELL_W * frac, wallY, true, barrierTheme);
         }
@@ -1128,6 +1184,9 @@ export class MapObstacles {
     pbody.setSize(bw, bh);
     pbody.reset();
     this.staticGroup.add(physicsBody);
+    // Track AABB bounds so resolveCollision can push enemies back from locked doors
+    const bwHalf = bw / 2, bhHalf = bh / 2;
+    this.barrierBounds.push({ x: doorX - bwHalf, y: doorY - bhHalf, w: bw, h: bh, theme });
 
     // ── Visual door panel ──
     const gfx = this.scene.add.graphics().setDepth(13);
@@ -1230,8 +1289,8 @@ export class MapObstacles {
   private _populateRoom(col: number, row: number, theme: RoomTheme, wave: number): void {
     const def = THEMES[theme];
     const count = Math.min(def.maxCount, def.minCount + Math.floor(wave / 2));
-    // Mini-rooms (row 0) only use the bottom half of the cell
-    const isMiniRoom = row === 0;
+    // All rooms now use the full cell height — no mini-room shrinking
+    const isMiniRoom = false;
     const cellOriginY = row * CELL_H;
     const roomOriginY = isMiniRoom ? cellOriginY + Math.floor(CELL_H / 2) : cellOriginY;
     const roomHeight  = isMiniRoom ? Math.floor(CELL_H / 2) : CELL_H;
@@ -1248,9 +1307,9 @@ export class MapObstacles {
     const roomCx = col * CELL_W + CELL_W / 2;
     const roomCy = roomOriginY + roomHeight / 2;
 
-    // ── ARMORY: fixed shop terminal at room center-right ─────────────────────
+    // ── ARMORY: fixed shop terminal against the right wall ───────────────────
     if (theme === "armory") {
-      const termX = roomCx + 240;
+      const termX = col * CELL_W + CELL_W - (WALL_T + 30) - 60;  // near right wall
       const termY = roomCy;
       this.shopTerminalPos = { x: termX, y: termY };
       // Draw glowing shop console marker
@@ -1274,10 +1333,10 @@ export class MapObstacles {
       });
     }
 
-    // ── REACTOR CORE: fixed big reactor machine at room center ───────────────
+    // ── REACTOR CORE: fixed big reactor machine against the top wall ─────────
     if (theme === "power") {
       const reactX = roomCx;
-      const reactY = roomCy;
+      const reactY = ry + 90;  // anchored to top wall — leaves center open for combat
       this.reactorMachinePos = { x: reactX, y: reactY };
       // Draw big reactor machine marker
       const rGfx = this.scene.add.graphics().setDepth(4);
@@ -1300,7 +1359,7 @@ export class MapObstacles {
       rGfx.fillStyle(0x00ff88, 0.6);
       rGfx.fillCircle(reactX, reactY, 10);
       this.decorations.push(rGfx);
-      const reactLabel = this.scene.add.text(reactX, reactY - 68, "REACTOR CORE", {
+      const reactLabel = this.scene.add.text(reactX, reactY - 70, "⚡ REACTOR CORE  [ DEFEND ]", {
         fontFamily: "monospace", fontSize: "11px", color: "#00ff88",
         stroke: "#000", strokeThickness: 2,
       }).setOrigin(0.5).setDepth(15);
@@ -1310,6 +1369,9 @@ export class MapObstacles {
         alpha: { from: 0.7, to: 1 },
         duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut",
       });
+      // Damage overlay — drawn each frame by MainScene based on reactor HP
+      this.reactorDamageOverlay = this.scene.add.graphics().setDepth(5);
+      this.decorations.push(this.reactorDamageOverlay);
     }
 
     for (let i = 0; i < count; i++) {
@@ -1318,9 +1380,31 @@ export class MapObstacles {
       if (!prop) continue;
 
       let placed = false;
-      for (let attempt = 0; attempt < 25; attempt++) {
-        const px = rx + Phaser.Math.Between(0, rw - prop.w);
-        const py = ry + Phaser.Math.Between(0, rh - prop.h);
+      for (let attempt = 0; attempt < 40; attempt++) {
+        // Wall-zone biased placement: deeper band keeps combat centre open.
+        const wallDepth = Math.min(115, Math.floor(rw / 3.5), Math.floor(rh / 3));
+        const side = Phaser.Math.Between(0, 3); // 0=top, 1=right, 2=bottom, 3=left
+        let px: number, py: number;
+        switch (side) {
+          case 0: // top wall
+            px = rx + Phaser.Math.Between(0, Math.max(0, rw - prop.w));
+            py = ry + Phaser.Math.Between(0, Math.max(0, wallDepth - prop.h));
+            break;
+          case 1: // right wall
+            px = rx + rw - prop.w - Phaser.Math.Between(0, Math.max(0, wallDepth - prop.w));
+            py = ry + Phaser.Math.Between(0, Math.max(0, rh - prop.h));
+            break;
+          case 2: // bottom wall
+            px = rx + Phaser.Math.Between(0, Math.max(0, rw - prop.w));
+            py = ry + rh - prop.h - Phaser.Math.Between(0, Math.max(0, wallDepth - prop.h));
+            break;
+          default: // left wall
+            px = rx + Phaser.Math.Between(0, Math.max(0, wallDepth - prop.w));
+            py = ry + Phaser.Math.Between(0, Math.max(0, rh - prop.h));
+            break;
+        }
+        px = Phaser.Math.Clamp(px, rx, rx + rw - prop.w);
+        py = Phaser.Math.Clamp(py, ry, ry + rh - prop.h);
         const pcx = px + prop.w / 2;
         const pcy = py + prop.h / 2;
 
@@ -1330,6 +1414,21 @@ export class MapObstacles {
         // Keep shop terminal and reactor machine clear of random props
         if (this.shopTerminalPos && Math.abs(pcx - this.shopTerminalPos.x) < 80 && Math.abs(pcy - this.shopTerminalPos.y) < 80) continue;
         if (this.reactorMachinePos && Math.abs(pcx - this.reactorMachinePos.x) < 90 && Math.abs(pcy - this.reactorMachinePos.y) < 90) continue;
+
+        // Door-clearance: don't block doorway passages (DOOR_W=300 so clear 145px each side)
+        const DOOR_CLEAR = DOOR_W * 0.5 + 20;
+        const hd1 = col * CELL_W + CELL_W * 0.3;   // horizontal door 1 x (world space)
+        const hd2 = col * CELL_W + CELL_W * 0.7;   // horizontal door 2 x
+        const topWallAbsY  = row * CELL_H;          // absolute y of top boundary
+        const botWallAbsY  = (row + 1) * CELL_H;   // absolute y of bottom boundary
+        if (Math.abs(pcx - hd1) < DOOR_CLEAR && (Math.abs(pcy - topWallAbsY) < DOOR_CLEAR + 30 || Math.abs(pcy - botWallAbsY) < DOOR_CLEAR + 30)) continue;
+        if (Math.abs(pcx - hd2) < DOOR_CLEAR && (Math.abs(pcy - topWallAbsY) < DOOR_CLEAR + 30 || Math.abs(pcy - botWallAbsY) < DOOR_CLEAR + 30)) continue;
+        const vd1 = row * CELL_H + CELL_H * 0.3;   // vertical door 1 y
+        const vd2 = row * CELL_H + CELL_H * 0.7;   // vertical door 2 y
+        const leftWallAbsX  = col * CELL_W;         // absolute x of left boundary
+        const rightWallAbsX = (col + 1) * CELL_W;  // absolute x of right boundary
+        if (Math.abs(pcy - vd1) < DOOR_CLEAR && (Math.abs(pcx - leftWallAbsX) < DOOR_CLEAR + 30 || Math.abs(pcx - rightWallAbsX) < DOOR_CLEAR + 30)) continue;
+        if (Math.abs(pcy - vd2) < DOOR_CLEAR && (Math.abs(pcx - leftWallAbsX) < DOOR_CLEAR + 30 || Math.abs(pcx - rightWallAbsX) < DOOR_CLEAR + 30)) continue;
 
         // Overlap check
         const checkR = Math.max(prop.w, prop.h) / 2 + 10;
@@ -1458,10 +1557,9 @@ export class MapObstacles {
         const theme = themes[r][c];
         const colors = FLOOR_COLORS[theme];
         const rx = c * CELL_W;
-        // Mini-rooms (row 0) — floor only in bottom half of cell
-        const isMiniRoom = r === 0;
-        const floorOriginY = isMiniRoom ? r * CELL_H + Math.floor(CELL_H / 2) : r * CELL_H;
-        const floorHeight  = isMiniRoom ? Math.floor(CELL_H / 2) : CELL_H;
+        // All rooms use the full cell height — no mini-room shrinking
+        const floorOriginY = r * CELL_H;
+        const floorHeight  = CELL_H;
         const ry = floorOriginY;
         const mx = rx + CELL_W / 2;
         const my = ry + floorHeight / 2;
@@ -1750,10 +1848,9 @@ export class MapObstacles {
       for (let c = 0; c < GRID_COLS; c++) {
         if (!active[r][c]) continue;
         const theme = themes[r][c];
-        // Mini-rooms use bottom half only
-        const isMiniRoom = r === 0;
-        const originY = isMiniRoom ? r * CELL_H + Math.floor(CELL_H / 2) : r * CELL_H;
-        const roomH   = isMiniRoom ? Math.floor(CELL_H / 2) : CELL_H;
+        // All rooms use the full cell height
+        const originY = r * CELL_H;
+        const roomH   = CELL_H;
         const rx = c * CELL_W + WALL_T + 40;
         const ry = originY + WALL_T + 40;
         const rw = CELL_W - (WALL_T + 40) * 2;
@@ -1851,8 +1948,10 @@ export class MapObstacles {
 
   private _buildRoomPhysicsZones(active: boolean[][], themes: RoomTheme[][]): void {
     this.roomPhysicsZones = [];
-    for (let r = 0; r < GRID_ROWS; r++) {
-      for (let c = 0; c < GRID_COLS; c++) {
+    const rows = active.length;
+    const cols = rows > 0 ? active[0].length : 0;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
         if (!active[r][c]) continue;
         const theme = themes[r][c];
         const base = ROOM_PHYSICS[theme];
@@ -1862,12 +1961,11 @@ export class MapObstacles {
           theme,
           ...base,
         };
-        // Power room: add gravity pull toward reactor center (bottom half of mini-room for row=0)
+        // Power room: gravity pull toward full-cell center
         if (theme === "power") {
-          const isMini = r === 0;
           zone.gravityPull = {
             x: c * CELL_W + CELL_W / 2,
-            y: isMini ? r * CELL_H + CELL_H * 0.75 : r * CELL_H + CELL_H / 2,
+            y: r * CELL_H + CELL_H / 2,
             strength: 15,
           };
         }

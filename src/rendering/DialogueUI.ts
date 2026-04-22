@@ -38,8 +38,8 @@ export class DialogueUI {
   private scanLine: Phaser.GameObjects.Rectangle | null = null;
 
   // Config
-  private static readonly BOX_W = 480;
-  private static readonly BOX_H = 72;
+  private static readonly BOX_W = 490;
+  private static readonly BOX_H = 80;
   private static readonly MARGIN = 16;
   private static readonly TYPE_SPEED = 28; // ms per character
   private static readonly DEPTH = 250;
@@ -200,7 +200,7 @@ export class DialogueUI {
       .setAlpha(0);
 
     const x = MARGIN;
-    const y = GAME_HEIGHT - BOX_H - MARGIN - 50; // above the bottom HUD
+    const y = GAME_HEIGHT - BOX_H - MARGIN - 80; // clear of ability strip
 
     // Background
     this.bgRect = scene.add.graphics();

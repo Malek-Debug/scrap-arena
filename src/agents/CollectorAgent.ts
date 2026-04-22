@@ -8,7 +8,7 @@ import { ResourceSystem } from "../core/ResourceSystem";
 import { SystemsBus } from "../core/SystemsBus";
 import { DimensionBreach } from "../ai/DimensionBreach";
 import { WorldType } from "../core/WorldManager";
-import { WORLD_WIDTH, WORLD_HEIGHT } from "../core";
+import { WORLD_WIDTH, WORLD_HEIGHT, CELL_W, CELL_H } from "../core";
 
 /**
  * CollectorAgent — resource-seeking unit.
@@ -39,6 +39,12 @@ export class CollectorAgent extends BaseAgent {
 
   private playerRef: { x: number; y: number };
   private targetResourceId = -1;
+  /** When set, collector ignores resources and rushes directly to destroy the reactor. */
+  reactorTarget: { x: number; y: number } | null = null;
+
+  private _stuckTimer = 0;
+  private _lastPosX = 0;
+  private _lastPosY = 0;
 
   constructor(
     x: number,
@@ -94,6 +100,42 @@ export class CollectorAgent extends BaseAgent {
       SystemsBus.instance.emit("collector:breach", this.id, this.posX, this.posY);
     }
 
+    // Reactor rush: route through doors, skip resource gathering
+    if (this.reactorTarget) {
+      const dx = this.reactorTarget.x - this.posX;
+      const dy = this.reactorTarget.y - this.posY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 50) {
+        this.setTarget(
+          this.reactorTarget.x + Phaser.Math.Between(-28, 28),
+          this.reactorTarget.y + Phaser.Math.Between(-28, 28),
+        );
+      } else {
+        const ec = Math.floor(this.posX / CELL_W);
+        const er = Math.floor(this.posY / CELL_H);
+        const rc = Math.floor(this.reactorTarget.x / CELL_W);
+        const rr = Math.floor(this.reactorTarget.y / CELL_H);
+        let tx = this.reactorTarget.x, ty = this.reactorTarget.y;
+        if (ec !== rc || er !== rr) {
+          const wp = this._doorWaypoint(ec, er, rc, rr);
+          tx = wp.x; ty = wp.y;
+        }
+        this._stuckTimer += delta;
+        if (this._stuckTimer > 1500) {
+          const moved = Math.hypot(this.posX - this._lastPosX, this.posY - this._lastPosY);
+          if (moved < 20) {
+            tx += Phaser.Math.Between(-200, 200);
+            ty += Phaser.Math.Between(-200, 200);
+          }
+          this._lastPosX = this.posX;
+          this._lastPosY = this.posY;
+          this._stuckTimer = 0;
+        }
+        this.setTarget(tx, ty);
+      }
+      return;
+    }
+
     super.tick(delta);
     const current = this.reasoner.current;
     if (!current) return;
@@ -134,7 +176,8 @@ export class CollectorAgent extends BaseAgent {
     const dy = this.targetY - this.posY;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < 2) return;
-    const step = this.speed * (deltaMs / 1000);
+    const rushSpeed = this.reactorTarget ? this.speed * 2.0 : this.speed;
+    const step = rushSpeed * (deltaMs / 1000);
     const ratio = Math.min(step / dist, 1);
     this.posX += dx * ratio;
     this.posY += dy * ratio;
@@ -152,6 +195,25 @@ export class CollectorAgent extends BaseAgent {
 
   get isDead(): boolean {
     return this.hp <= 0;
+  }
+
+  private _doorWaypoint(
+    ec: number, er: number,
+    tc: number, tr: number,
+  ): { x: number; y: number } {
+    if (tc !== ec) {
+      const wallX = (Math.min(ec, ec + Math.sign(tc - ec)) + 1) * CELL_W;
+      const door1Y = er * CELL_H + CELL_H * 0.3;
+      const door2Y = er * CELL_H + CELL_H * 0.7;
+      const closest = Math.abs(this.posY - door1Y) < Math.abs(this.posY - door2Y) ? door1Y : door2Y;
+      return { x: wallX, y: closest };
+    } else {
+      const wallY = (Math.min(er, er + Math.sign(tr - er)) + 1) * CELL_H;
+      const door1X = ec * CELL_W + CELL_W * 0.3;
+      const door2X = ec * CELL_W + CELL_W * 0.7;
+      const closest = Math.abs(this.posX - door1X) < Math.abs(this.posX - door2X) ? door1X : door2X;
+      return { x: closest, y: wallY };
+    }
   }
 
   private static _buildActions(): Action[] {

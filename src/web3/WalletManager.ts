@@ -8,6 +8,10 @@
  */
 
 import { BrowserProvider, type Eip1193Provider } from "ethers";
+import { SecureStore } from "../core/SecureStore";
+import { IntegrityGuard } from "../core/IntegrityGuard";
+
+const SCORES_KEY = "scrapArenaWeb3Scores";
 
 export type WalletState =
   | { status: "disconnected" }
@@ -78,27 +82,43 @@ export class WalletManager {
 
   /**
    * Sign a score attestation with the connected wallet.
-   * Returns the signature string (off-chain proof — gasless).
-   * Format: "SCRAP ARENA | score: <N> | wave: <W> | address: <addr>"
+   * The signed message binds: score, wave, player address, session id,
+   * timestamp, score-checksum and an integrity flag (G=good, T=tainted).
+   * Stored locally via SecureStore so leaderboard injections are detected.
    */
   async signScore(score: number, wave: number): Promise<string> {
     if (!this._provider) throw new Error("Wallet not connected");
 
     const signer = await this._provider.getSigner();
     const address = await signer.getAddress();
-    const message = `SCRAP ARENA | score: ${score} | wave: ${wave} | player: ${address}`;
+    const guard = IntegrityGuard.instance;
+    guard.verifyScore(score);
+    const nonce = guard.buildNonce(score, wave);
+    const integrity = guard.isTainted ? "TAINTED" : "OK";
+    const message =
+      `SCRAP ARENA | score: ${score} | wave: ${wave} | player: ${address}` +
+      ` | session: ${guard.sessionId} | nonce: ${nonce} | integrity: ${integrity}`;
     const signature = await signer.signMessage(message);
 
-    const entry = { score, wave, address, signature, timestamp: Date.now() };
-    const all: typeof entry[] = JSON.parse(localStorage.getItem("scrapArenaWeb3Scores") ?? "[]");
+    const entry = {
+      score, wave, address, signature,
+      timestamp: Date.now(),
+      sessionId: guard.sessionId,
+      nonce,
+      integrity,
+    };
+    const all = (await SecureStore.get<typeof entry[]>(SCORES_KEY)) ?? [];
     all.unshift(entry);
-    localStorage.setItem("scrapArenaWeb3Scores", JSON.stringify(all.slice(0, 10)));
+    await SecureStore.set(SCORES_KEY, all.slice(0, 10));
 
     return signature;
   }
 
-  /** Get all locally stored signed score attestations. */
-  getSignedScores(): { score: number; wave: number; address: string; signature: string; timestamp: number }[] {
-    return JSON.parse(localStorage.getItem("scrapArenaWeb3Scores") ?? "[]");
+  /** Get all locally stored signed score attestations (verified entries only). */
+  async getSignedScores(): Promise<{
+    score: number; wave: number; address: string; signature: string;
+    timestamp: number; sessionId?: string; nonce?: string; integrity?: string;
+  }[]> {
+    return (await SecureStore.get(SCORES_KEY)) ?? [];
   }
 }

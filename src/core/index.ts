@@ -25,3 +25,5 @@ export type { StoryPhase, RoomTrigger, NarrativePhase } from "./StorySystem";
 export { GameState, GameStateMachine } from "./GameState";
 export { EntityManager } from "./EntityManager";
 export type { AnyAgent } from "./EntityManager";
+export { SecureStore } from "./SecureStore";
+export { IntegrityGuard } from "./IntegrityGuard";

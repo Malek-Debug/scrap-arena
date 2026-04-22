@@ -7,7 +7,7 @@ import { CurveType } from "../ai/interfaces";
 import { ShootSkill } from "../ai/skills/ShootSkill";
 import { SteeringBehaviors, SteeredAgent } from "../ai/SteeringBehaviors";
 import type { PlayerPredictor } from "../ai/PlayerPredictor";
-import { WORLD_WIDTH, WORLD_HEIGHT } from "../core";
+import { WORLD_WIDTH, WORLD_HEIGHT, CELL_W, CELL_H } from "../core";
 
 /**
  * EnemyAgent — aggressive pursuer with ranged attack.
@@ -42,6 +42,12 @@ export class EnemyAgent extends BaseAgent {
   nearbyAgents: SteeredAgent[] = [];
   /** Shared player predictor — injected by MainScene */
   predictor: PlayerPredictor | null = null;
+
+  /** Set true by EMP/stun systems — disables ranged fire and movement boost. */
+  _suppressed = false;
+
+  /** When set, this enemy ignores the player and marches to destroy the reactor. */
+  reactorTarget: { x: number; y: number } | null = null;
 
   readonly shootSkill: ShootSkill;
 
@@ -79,20 +85,25 @@ export class EnemyAgent extends BaseAgent {
   }
 
   protected populateContext(ctx: ContextSnapshot): void {
-    const dx = this.playerRef.x - this.posX;
-    const dy = this.playerRef.y - this.posY;
+    // Reactor assaulters measure distance to the reactor instead of the player.
+    const refX = this.reactorTarget?.x ?? this.playerRef.x;
+    const refY = this.reactorTarget?.y ?? this.playerRef.y;
+    const dx = refX - this.posX;
+    const dy = refY - this.posY;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     ctx.distanceToPlayer = Math.min(dist / 600, 1);
     ctx.distanceToThreat = ctx.distanceToPlayer;
-    ctx.danger = Math.max(0, 1 - dist / 400);
+    // Reactor assaulters ignore the player as a threat — they're on a mission
+    ctx.danger = this.reactorTarget ? 0 : Math.max(0, 1 - dist / 400);
     ctx.health = this.hp / this.maxHp;
-    ctx.targetVisible = dist < 420;
+    // Assaulters always "see" the reactor (no sight-range limit)
+    ctx.targetVisible = dist < (this.reactorTarget ? 1400 : 950);
     ctx.ammo = this.shootSkill.normalizedCooldown;
     ctx.resource = 0;
     ctx.goalProgress = 1 - ctx.distanceToPlayer;
 
-    if (ctx.targetVisible) {
+    if (ctx.targetVisible && !this.reactorTarget) {
       this.memory.lastKnownPlayerPos = { x: this.playerRef.x, y: this.playerRef.y };
     }
   }
@@ -111,6 +122,21 @@ export class EnemyAgent extends BaseAgent {
 
     switch (current.name) {
       case "Chase": {
+        if (this.reactorTarget) {
+          // Reactor assaulter: navigate straight to the reactor via door routing.
+          let tx = this.reactorTarget.x;
+          let ty = this.reactorTarget.y;
+          const ec = Math.floor(this.posX / CELL_W);
+          const er = Math.floor(this.posY / CELL_H);
+          const rc = Math.floor(tx / CELL_W);
+          const rr = Math.floor(ty / CELL_H);
+          if (ec !== rc || er !== rr) {
+            const wp = this._doorWaypoint(ec, er, rc, rr);
+            tx = wp.x; ty = wp.y;
+          }
+          this.setTarget(tx, ty);
+          break;
+        }
         // Use predicted player position when confidence is high (low entropy)
         let targetX = this.playerRef.x;
         let targetY = this.playerRef.y;
@@ -121,6 +147,19 @@ export class EnemyAgent extends BaseAgent {
           targetX = this.playerRef.x + (pred.x - this.playerRef.x) * confidence;
           targetY = this.playerRef.y + (pred.y - this.playerRef.y) * confidence;
         }
+
+        // Door-routing: if enemy is in a different room than the player,
+        // navigate through the nearest door opening instead of walking into walls.
+        const ec = Math.floor(this.posX / CELL_W);
+        const er = Math.floor(this.posY / CELL_H);
+        const pc = Math.floor(targetX / CELL_W);
+        const pr = Math.floor(targetY / CELL_H);
+        if (ec !== pc || er !== pr) {
+          const wp = this._doorWaypoint(ec, er, pc, pr);
+          targetX = wp.x;
+          targetY = wp.y;
+        }
+
         // Move to assigned flank position around predicted position
         const flankPos = SteeringBehaviors.flankTarget(targetX, targetY, this.flankAngle, 140);
         this.setTarget(flankPos.x, flankPos.y);
@@ -129,7 +168,14 @@ export class EnemyAgent extends BaseAgent {
 
       case "Strafe":
       case "Attack": {
-        // Strafe: orbit player while shooting
+        if (this.reactorTarget) {
+          // At the reactor: jitter around it — simulates contact attack
+          this.setTarget(
+            this.reactorTarget.x + Phaser.Math.Between(-28, 28),
+            this.reactorTarget.y + Phaser.Math.Between(-28, 28),
+          );
+          break;
+        }
         const orbitRadius = 140 + Math.sin(this._strafeTime * 0.3) * 30; // slight radius variance
         const strafePos = SteeringBehaviors.strafeTarget(
           this.posX, this.posY,
@@ -138,8 +184,8 @@ export class EnemyAgent extends BaseAgent {
         );
         this.setTarget(strafePos.x, strafePos.y);
 
-        // Shoot with predictive intercept
-        if (this.shootSkill.canUse && this._scene && dist < 360) {
+        // Shoot with predictive intercept — 3-round burst pattern (machine-gun feel)
+        if (this.shootSkill.canUse && this._scene && dist < 360 && !this._suppressed) {
           let aimX = this.playerRef.x;
           let aimY = this.playerRef.y;
           if (this.predictor) {
@@ -157,7 +203,16 @@ export class EnemyAgent extends BaseAgent {
             aimY = this.playerRef.y + Math.sin(intercept) * 50;
           }
           const aimAngle = Math.atan2(aimY - this.posY, aimX - this.posX);
+          // Fire 3-round burst with tight jitter
           this.shootSkill.tryUse(this.posX, this.posY, aimAngle);
+          for (let i = 1; i <= 2; i++) {
+            this._scene.time.delayedCall(70 * i, () => {
+              if (this.isDead || this._suppressed) return;
+              const a2 = aimAngle + (Math.random() - 0.5) * 0.08;
+              this.shootSkill.reset(); // bypass per-shot cooldown for burst
+              this.shootSkill.tryUse(this.posX, this.posY, a2);
+            });
+          }
         }
         break;
       }
@@ -172,6 +227,29 @@ export class EnemyAgent extends BaseAgent {
       }
 
       case "Patrol":
+        // Actively hunt toward last known player position if we have it
+        if (this.memory.lastKnownPlayerPos) {
+          const lx = this.memory.lastKnownPlayerPos.x;
+          const ly = this.memory.lastKnownPlayerPos.y;
+          const ldx = lx - this.posX;
+          const ldy = ly - this.posY;
+          if (ldx * ldx + ldy * ldy > 80 * 80) {
+            // Route through door if in different room
+            const ec = Math.floor(this.posX / CELL_W);
+            const er = Math.floor(this.posY / CELL_H);
+            const lc = Math.floor(lx / CELL_W);
+            const lr = Math.floor(ly / CELL_H);
+            if (ec !== lc || er !== lr) {
+              const wp = this._doorWaypoint(ec, er, lc, lr);
+              this.setTarget(wp.x, wp.y);
+            } else {
+              this.setTarget(lx, ly);
+            }
+            break;
+          }
+          // Reached last known position — clear memory and resume random patrol
+          this.memory.lastKnownPlayerPos = null;
+        }
         if (Math.random() < 0.04) {
           this.setTarget(
             this.posX + Phaser.Math.Between(-180, 180),
@@ -179,6 +257,31 @@ export class EnemyAgent extends BaseAgent {
           );
         }
         break;
+    }
+  }
+
+  /** Compute a waypoint through the nearest door opening toward the target room. */
+  private _doorWaypoint(
+    ec: number, er: number,
+    tc: number, tr: number,
+  ): { x: number; y: number } {
+    // Move one step toward target room — prefer column difference first
+    if (tc !== ec) {
+      // Moving horizontally → pass through vertical wall between col ec and ec±1
+      const wallX = (Math.min(ec, ec + Math.sign(tc - ec)) + 1) * CELL_W;
+      // Doors are at 30% and 70% of row height
+      const door1Y = er * CELL_H + CELL_H * 0.3;
+      const door2Y = er * CELL_H + CELL_H * 0.7;
+      const closest = Math.abs(this.posY - door1Y) < Math.abs(this.posY - door2Y) ? door1Y : door2Y;
+      return { x: wallX, y: closest };
+    } else {
+      // Moving vertically → pass through horizontal wall between row er and er±1
+      const wallY = (Math.min(er, er + Math.sign(tr - er)) + 1) * CELL_H;
+      // Doors are at 30% and 70% of column width
+      const door1X = ec * CELL_W + CELL_W * 0.3;
+      const door2X = ec * CELL_W + CELL_W * 0.7;
+      const closest = Math.abs(this.posX - door1X) < Math.abs(this.posX - door2X) ? door1X : door2X;
+      return { x: closest, y: wallY };
     }
   }
 
@@ -196,7 +299,9 @@ export class EnemyAgent extends BaseAgent {
       50,
     );
 
-    const step = this.speed * (deltaMs / 1000);
+    // Drones rushing the reactor get a 35% speed bonus — they're on a mission
+    const rushSpeed = this.reactorTarget ? this.speed * 1.35 : this.speed;
+    const step = rushSpeed * (deltaMs / 1000);
     const ratio = Math.min(step / dist, 1);
 
     this.posX += dx * ratio + sep.x * (deltaMs / 1000) * this.speed * 0.4;

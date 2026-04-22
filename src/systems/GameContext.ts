@@ -60,5 +60,10 @@ export interface GameContext {
   abilityShieldTimer: number;
   abilityShieldGfx: Phaser.GameObjects.Arc | null;
   contactDamageCooldown: number;
+  iFrameTimer: number;
+  playerKnockbackVX: number;
+  playerKnockbackVY: number;
   deathQueue: AnyAgent[];
+  reactorHp: number;
+  reactorMaxHp: number;
 }

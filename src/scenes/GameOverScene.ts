@@ -2,6 +2,8 @@ import Phaser from "phaser";
 import { GAME_WIDTH, GAME_HEIGHT } from "../core";
 import { AudioManager } from "../audio/AudioManager";
 import { WalletManager } from "../web3/WalletManager";
+import { SecureStore } from "../core/SecureStore";
+import { IntegrityGuard } from "../core/IntegrityGuard";
 
 const C_RED    = 0xff2200;
 const C_ORANGE = 0xff5500;
@@ -40,14 +42,14 @@ export class GameOverScene extends Phaser.Scene {
     AudioManager.instance.setScene(this);
     AudioManager.instance.stopMusic();
 
-    // Leaderboard persistence
+    // Leaderboard (HMAC-protected via SecureStore; sync peek for UI render)
     type LeaderEntry = { score: number; wave: number; kills: number; maxCombo: number };
-    const saved: LeaderEntry[] = JSON.parse(localStorage.getItem("scrapArenaLeaders") ?? "[]");
-    const prevBest = saved.length > 0 ? saved[0].score : 0;
-    saved.push({ score, wave, kills, maxCombo });
-    saved.sort((a, b) => b.score - a.score);
-    const top3 = saved.slice(0, 3);
-    localStorage.setItem("scrapArenaLeaders", JSON.stringify(top3));
+    const existing = (SecureStore.peekUnverified<LeaderEntry[]>("scrapArenaLeaders")) ?? [];
+    const prevBest = existing.length > 0 ? (existing[0].score | 0) : 0;
+    const top3: LeaderEntry[] = [...existing, { score, wave, kills, maxCombo }]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+    void SecureStore.set("scrapArenaLeaders", top3);
     const isNewRecord = score > prevBest && score > 0;
 
     // YouTube Playables: submit score
@@ -158,7 +160,7 @@ export class GameOverScene extends Phaser.Scene {
     });
 
     // ── 8. Stats panel ──
-    const panelX = cx - 320, panelY = 140, panelW = 640, panelH = 230;
+    const panelX = cx - 320, panelY = 140, panelW = 520, panelH = 230;
 
     const panelGfx = this.add.graphics().setAlpha(0);
     panelGfx.fillStyle(0x0d0000, 0.92);
@@ -178,8 +180,8 @@ export class GameOverScene extends Phaser.Scene {
     }).setOrigin(0.5).setAlpha(0);
     this.tweens.add({ targets: panelHeader, alpha: 1, duration: 200, delay: 460 });
 
-    const statDefs: { label: string; value: string; col: string; big?: boolean }[] = [
-      { label: "SCORE",          value: `${score}`,     col: H_AMBER,  big: true },
+    const statDefs: { label: string; value: string; col: string; big?: boolean; isScore?: boolean; targetNum?: number }[] = [
+      { label: "SCORE",          value: `0`,            col: H_AMBER,  big: true, isScore: true, targetNum: score },
       { label: "WAVES SURVIVED", value: `${wave}`,      col: H_ORANGE },
       { label: "KILLS",          value: `${kills}`,     col: H_ORANGE },
       { label: "SCRAP",          value: `${scrap}`,     col: H_ORANGE },
@@ -199,6 +201,14 @@ export class GameOverScene extends Phaser.Scene {
       this.tweens.add({ targets: lbl, alpha: 1, x: lx, duration: 200, delay, ease: "Cubic.easeOut" });
       this.tweens.add({ targets: val, alpha: 1, x: vx, duration: 200, delay, ease: "Cubic.easeOut" });
       this.tweens.add({ targets: sep, alpha: 1, duration: 160, delay: delay + 80 });
+      if (s.isScore && s.targetNum && s.targetNum > 0) {
+        const ctr = { v: 0 };
+        this.tweens.add({
+          targets: ctr, v: s.targetNum, duration: 1100, delay: delay + 220, ease: "Cubic.easeOut",
+          onUpdate: () => val.setText(`${ctr.v | 0}`),
+          onComplete: () => val.setText(`${s.targetNum}`),
+        });
+      }
     });
 
     // Best score + new record
@@ -219,8 +229,9 @@ export class GameOverScene extends Phaser.Scene {
       });
     }
 
-    // ── 9. Grade badge ──
-    const badgeX = cx + 290, badgeY = panelY + panelH / 2 + 10, badgeR = 75;
+    // ── 9. Grade badge — placed outside the stats panel to the right ──
+    const badgeR = 75;
+    const badgeX = panelX + panelW + badgeR + 30, badgeY = panelY + panelH / 2 + 10;
     const glowGfx = this.add.graphics().setAlpha(0).setScale(0.2);
     glowGfx.lineStyle(2, gradeColor, 0.15); glowGfx.strokeCircle(badgeX, badgeY, badgeR + 36);
     glowGfx.lineStyle(2, gradeColor, 0.3); glowGfx.strokeCircle(badgeX, badgeY, badgeR + 20);
@@ -261,6 +272,16 @@ export class GameOverScene extends Phaser.Scene {
 
     // Wallet sign score (Ethereum challenge)
     this._buildWalletSignButton(cx, btnY + 50, score, wave);
+
+    // ── TAINTED watermark (anti-cheat: only shown if integrity flag tripped) ──
+    if (IntegrityGuard.instance.isTainted) {
+      const tainted = this.add.text(cx, panelY + panelH + 38, "⚠  RUN  TAINTED  ⚠", {
+        fontFamily: "monospace", fontSize: "12px", color: "#ff3300", fontStyle: "bold",
+        stroke: "#000000", strokeThickness: 3,
+      }).setOrigin(0.5).setAlpha(0).setDepth(50);
+      this.tweens.add({ targets: tainted, alpha: 0.85, duration: 400, delay: 1500 });
+      this.tweens.add({ targets: tainted, alpha: { from: 0.85, to: 0.35 }, duration: 700, yoyo: true, repeat: -1, delay: 1900 });
+    }
 
     // ── 11. Bottom status bar ──
     const barGfx = this.add.graphics().setDepth(5);

@@ -27,6 +27,15 @@ export class TurretAgent extends BaseAgent {
 
   readonly shootSkill: ShootSkill;
 
+  /** Set true by EMP — turret head goes dark for stun duration. */
+  _suppressed = false;
+
+  // ── Charge-shot state (machine-theme) ──────────────────────────────
+  private _chargeMs = 0;
+  private _chargeTelegraph: Phaser.GameObjects.Line | null = null;
+  private static readonly CHARGE_INTERVAL_MS = 4200;
+  private static readonly CHARGE_TELEGRAPH_MS = 800;
+
   private playerRef: { x: number; y: number };
   private _scene: Phaser.Scene | null = null;
 
@@ -82,6 +91,56 @@ export class TurretAgent extends BaseAgent {
 
     const current = this.reasoner.current;
     if (!current) return;
+
+    // ── Charge-shot loop (independent of utility AI) ──────────────────
+    if (!this._suppressed && this._scene && current.name === "Attack") {
+      this._chargeMs += delta * 1000;
+      const inWindup = this._chargeMs >= TurretAgent.CHARGE_INTERVAL_MS - TurretAgent.CHARGE_TELEGRAPH_MS;
+
+      if (inWindup && !this._chargeTelegraph) {
+        // Spawn red telegraph laser line
+        const angle = Math.atan2(this.playerRef.y - this.posY, this.playerRef.x - this.posX);
+        const len = 600;
+        const ex = this.posX + Math.cos(angle) * len;
+        const ey = this.posY + Math.sin(angle) * len;
+        this._chargeTelegraph = this._scene.add.line(0, 0, this.posX, this.posY, ex, ey, 0xff2200, 0.55)
+          .setOrigin(0, 0).setLineWidth(1.5).setDepth(45)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        this._scene.tweens.add({
+          targets: this._chargeTelegraph,
+          alpha: 1,
+          duration: TurretAgent.CHARGE_TELEGRAPH_MS,
+          ease: "Quad.easeIn",
+        });
+      }
+
+      if (this._chargeMs >= TurretAgent.CHARGE_INTERVAL_MS) {
+        this._chargeMs = 0;
+        const angle = Math.atan2(this.playerRef.y - this.posY, this.playerRef.x - this.posX);
+        if (this._chargeTelegraph) { this._chargeTelegraph.destroy(); this._chargeTelegraph = null; }
+        // Heavy slug — bypass cooldown via fireImmediate
+        ShootSkill.fireImmediate(this.posX, this.posY, angle, {
+          damage: 22, range: 700, speed: 520, tint: 0xff3300, ownerId: this.id,
+        });
+        // Visual: bright muzzle burst
+        const burst = this._scene.add.circle(
+          this.posX + Math.cos(angle) * 18,
+          this.posY + Math.sin(angle) * 18,
+          14, 0xffaa44, 1,
+        ).setDepth(50).setBlendMode(Phaser.BlendModes.ADD);
+        this._scene.tweens.add({
+          targets: burst, scale: 3, alpha: 0, duration: 220,
+          onComplete: () => burst.destroy(),
+        });
+        this._scene.cameras.main.shake(100, 0.005);
+      }
+    } else if (this._chargeTelegraph) {
+      this._chargeTelegraph.destroy();
+      this._chargeTelegraph = null;
+      this._chargeMs = Math.min(this._chargeMs, TurretAgent.CHARGE_INTERVAL_MS - TurretAgent.CHARGE_TELEGRAPH_MS - 200);
+    }
+
+    if (this._suppressed) return;
 
     switch (current.name) {
       case "Track": {

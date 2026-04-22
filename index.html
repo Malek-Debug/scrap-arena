@@ -3,18 +3,42 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="color-scheme" content="dark" />
+  <!--
+    Best-effort CSP. Allows: self for app code, the YouTube Playables SDK
+    domain, inline styles (the bootstrap <style> block below), and data:/blob:
+    for canvas/audio resources Phaser creates at runtime.
+    NOTE: a CSP delivered via <meta> can be bypassed if the page is reframed by
+    an attacker — for full protection serve the same policy as an HTTP header.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' https://www.youtube.com 'unsafe-inline' 'wasm-unsafe-eval';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: blob:;
+    media-src 'self' data: blob:;
+    font-src 'self' data:;
+    connect-src 'self' https: wss:;
+    worker-src 'self' blob:;
+    object-src 'none';
+    base-uri 'self';
+    frame-ancestors 'self' https://www.youtube.com https://*.youtube.com https://*.wavedash.games;
+    form-action 'none';
+  " />
   <title>SCRAP ARENA: THE FRACTURE</title>
   <!--
     YouTube Playables SDK — must load before any game code.
     Safe to include in non-YouTube environments: ytgame will simply be undefined
     and the game guards all calls with typeof ytgame !== "undefined".
   -->
-  <script src="https://www.youtube.com/game_api/v1"></script>
+  <script src="https://www.youtube.com/game_api/v1" defer crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background: #000000; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000000; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
     #game-container { width: 100%; height: 100%; }
-    canvas { display: block; }
+    canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
     /* Wallet overlay panel */
     #wallet-panel {
       position: fixed; bottom: 0; right: 0;
