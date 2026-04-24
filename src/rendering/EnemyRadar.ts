@@ -19,6 +19,7 @@ const MIN_ALPHA = 0.4;
 const MINIMAP_W = 120;
 const MINIMAP_H = 68;
 const MINIMAP_PADDING = 10;
+const MINIMAP_BOTTOM_MARGIN = 82; // clearance above ability strip (which starts at y=GAME_HEIGHT-68)
 const MINIMAP_SCALE_X = MINIMAP_W / WORLD_WIDTH;
 const MINIMAP_SCALE_Y = MINIMAP_H / WORLD_HEIGHT;
 
@@ -44,6 +45,16 @@ export class EnemyRadar {
     this.minimapGfx = scene.add.graphics();
     this.minimapGfx.setScrollFactor(0);
     this.minimapGfx.setDepth(201);
+
+    // Static "MAP" label rendered once above the bottom-right minimap
+    const mapX = GAME_WIDTH - MINIMAP_W - MINIMAP_PADDING;
+    const mapLabelY = GAME_HEIGHT - MINIMAP_H - MINIMAP_BOTTOM_MARGIN - 13;
+    scene.add.text(mapX, mapLabelY, "▣  RADAR MAP", {
+      fontFamily: "monospace",
+      fontSize: "9px",
+      color: "#33ff9966",
+      letterSpacing: 1,
+    }).setScrollFactor(0).setDepth(200);
   }
 
   update(
@@ -165,7 +176,7 @@ export class EnemyRadar {
     this.arrowGfx.fillTriangle(tipX, tipY, b1x, b1y, b2x, b2y);
   }
 
-  /** Draw the minimap in the top-right corner. */
+  /** Draw the minimap in the bottom-right corner (above ability strip). */
   private drawMinimap(
     playerX: number,
     playerY: number,
@@ -173,14 +184,14 @@ export class EnemyRadar {
     enemyCount: number,
   ): void {
     const mx = GAME_WIDTH - MINIMAP_W - MINIMAP_PADDING;
-    const my = MINIMAP_PADDING;
+    const my = GAME_HEIGHT - MINIMAP_H - MINIMAP_BOTTOM_MARGIN;
 
     // Background
-    this.minimapGfx.fillStyle(0x111111, 0.6);
+    this.minimapGfx.fillStyle(0x030810, 0.78);
     this.minimapGfx.fillRect(mx, my, MINIMAP_W, MINIMAP_H);
 
-    // Border
-    this.minimapGfx.lineStyle(1, 0x444444, 0.8);
+    // Border — accent green to match HUD palette
+    this.minimapGfx.lineStyle(1, 0x00ff88, 0.45);
     this.minimapGfx.strokeRect(mx, my, MINIMAP_W, MINIMAP_H);
 
     // Enemy dots (skip dead inline)

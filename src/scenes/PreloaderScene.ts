@@ -99,7 +99,7 @@ export class PreloaderScene extends Phaser.Scene {
       ["sfx_shield",        "assets/audio/sfx_shield.ogg"],
       ["music_main",        "assets/audio/Gameplay Music.mp3"],
       ["music_boss",        "assets/audio/Boss Music.mp3"],
-      ["music_title",       "assets/audio/Game Lobby.mp3"],
+      ["music_title",       "assets/audio/music_lobby.wav"],
     ];
     for (const [key, url] of audioFiles) {
       this.load.audio(key, url);

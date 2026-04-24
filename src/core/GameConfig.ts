@@ -6,6 +6,8 @@ export const ROOM_COLS = 3;
 export const ROOM_ROWS = 4;  // Row 0 = mini-rooms (Reactor + Armory) above hub; rows 1-3 = main grid
 export const CELL_W = GAME_WIDTH;   // Each room = one screen
 export const CELL_H = GAME_HEIGHT;
+export const WALL_T = 24;           // Wall thickness in pixels (must match MapObstacles)
+export const DOOR_W = 300;          // Door gap width in pixels (must match MapObstacles)
 export const WORLD_WIDTH = ROOM_COLS * CELL_W;   // 3840
 export const WORLD_HEIGHT = ROOM_ROWS * CELL_H;  // 2160
 export const AI_TICK_RATE = 1 / 10; // 10Hz fixed-step AI evaluation

@@ -168,8 +168,8 @@ export class HUDManager {
 
     this.enemyHpGfx = scene.add.graphics().setDepth(55);
 
-    this.corruptionText = scene.add.text(GAME_WIDTH - 200, 60, "", {
-      fontFamily: "monospace", fontSize: "12px", color: "#ff4444",
+    this.corruptionText = scene.add.text(GAME_WIDTH - 218, 112, "", {
+      fontFamily: "monospace", fontSize: "11px", color: "#ff4444",
     }).setScrollFactor(0).setDepth(200);
 
     this.lowHpOverlay = scene.add.graphics().setScrollFactor(0).setDepth(150);

@@ -1144,15 +1144,33 @@ export class AudioManager {
   // ==========================================================================
 
   startTitleMusic(): void {
-    if (!this.ctx) return;
-    if (this._titleMusicGain) this.stopTitleMusic();
-    // Try file-based title music first
+    // ── File-based WAV always plays via Phaser (handles its own audio unlock) ──
     if (this._phaserTitleMusic2) { this._stopMusicFile(this._phaserTitleMusic2); this._phaserTitleMusic2 = null; }
-    const fileMusic = this._musicFile('music_title', 0.2);
+    const fileMusic = this._musicFile('music_title', 0.55);
     if (fileMusic) {
       this._phaserTitleMusic2 = fileMusic;
-      // Also layer the procedural pad underneath for atmosphere
     }
+
+    // ── Procedural oscillator pad (requires Web Audio context) ──
+    if (!this.ctx) return;
+    if (this._titleMusicGain) {
+      // tear down old oscillators without double-stopping file music
+      if (this._titleSparkleInterval !== null) {
+        clearInterval(this._titleSparkleInterval);
+        this._titleSparkleInterval = null;
+      }
+      const t0 = this.now;
+      const oldGain = this._titleMusicGain; const oldNodes = this._titleMusicNodes;
+      oldGain.gain.cancelScheduledValues(t0);
+      oldGain.gain.setValueAtTime(oldGain.gain.value, t0);
+      oldGain.gain.linearRampToValueAtTime(0, t0 + 0.3);
+      this._titleMusicGain = null; this._titleMusicNodes = [];
+      setTimeout(() => {
+        oldNodes.forEach(n => { if (n instanceof OscillatorNode) { try { n.stop(); } catch { /**/ } } try { n.disconnect(); } catch { /**/ } });
+        try { oldGain.disconnect(); } catch { /**/ }
+      }, 400);
+    }
+
     const ctx   = this.ctx;
     const nodes: AudioNode[] = [];
     const gain  = ctx.createGain();
@@ -1197,12 +1215,12 @@ export class AudioManager {
       this._stopMusicFile(this._phaserTitleMusic2);
       this._phaserTitleMusic2 = null;
     }
-    if (!this.ctx || !this._titleMusicGain) return;
-
+    // Always cancel sparkle interval regardless of ctx state
     if (this._titleSparkleInterval !== null) {
       clearInterval(this._titleSparkleInterval);
       this._titleSparkleInterval = null;
     }
+    if (!this.ctx || !this._titleMusicGain) return;
 
     const t = this.now;
     const gain = this._titleMusicGain; const nodes = this._titleMusicNodes;

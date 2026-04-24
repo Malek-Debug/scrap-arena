@@ -8,7 +8,7 @@ import { ResourceSystem } from "../core/ResourceSystem";
 import { SystemsBus } from "../core/SystemsBus";
 import { DimensionBreach } from "../ai/DimensionBreach";
 import { WorldType } from "../core/WorldManager";
-import { WORLD_WIDTH, WORLD_HEIGHT, CELL_W, CELL_H } from "../core";
+import { WORLD_WIDTH, WORLD_HEIGHT, CELL_W, CELL_H, WALL_T, DOOR_W } from "../core";
 
 /**
  * CollectorAgent — resource-seeking unit.
@@ -116,16 +116,22 @@ export class CollectorAgent extends BaseAgent {
         const rc = Math.floor(this.reactorTarget.x / CELL_W);
         const rr = Math.floor(this.reactorTarget.y / CELL_H);
         let tx = this.reactorTarget.x, ty = this.reactorTarget.y;
+        let throughDoor = false;
         if (ec !== rc || er !== rr) {
           const wp = this._doorWaypoint(ec, er, rc, rr);
           tx = wp.x; ty = wp.y;
+          throughDoor = true;
         }
         this._stuckTimer += delta;
         if (this._stuckTimer > 1500) {
           const moved = Math.hypot(this.posX - this._lastPosX, this.posY - this._lastPosY);
-          if (moved < 20) {
-            tx += Phaser.Math.Between(-200, 200);
-            ty += Phaser.Math.Between(-200, 200);
+          if (moved < 20 && throughDoor) {
+            // Jitter only the perpendicular axis so enemy searches for the door gap
+            if (ec === rc) {
+              tx += Phaser.Math.Between(-220, 220); // vertical nav → jitter X
+            } else {
+              ty += Phaser.Math.Between(-220, 220); // horizontal nav → jitter Y
+            }
           }
           this._lastPosX = this.posX;
           this._lastPosY = this.posY;
@@ -172,11 +178,15 @@ export class CollectorAgent extends BaseAgent {
 
   updateMovement(deltaMs: number): void {
     if (!this.sprite) return;
+    // Sync logical position from physics-resolved sprite so cell calculations
+    // always reflect the true post-collision position.
+    this.posX = this.sprite.x;
+    this.posY = this.sprite.y;
     const dx = this.targetX - this.posX;
     const dy = this.targetY - this.posY;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < 2) return;
-    const rushSpeed = this.reactorTarget ? this.speed * 2.0 : this.speed;
+    const rushSpeed = this.reactorTarget ? this.speed * 1.2 : this.speed;
     const step = rushSpeed * (deltaMs / 1000);
     const ratio = Math.min(step / dist, 1);
     this.posX += dx * ratio;
@@ -201,18 +211,47 @@ export class CollectorAgent extends BaseAgent {
     ec: number, er: number,
     tc: number, tr: number,
   ): { x: number; y: number } {
+    const PASS = WALL_T + 30;
+    const halfDoor = DOOR_W / 2;
     if (tc !== ec) {
-      const wallX = (Math.min(ec, ec + Math.sign(tc - ec)) + 1) * CELL_W;
+      // Crossing a vertical wall
+      const dirX = Math.sign(tc - ec);
+      const wallX = (Math.min(ec, ec + dirX) + 1) * CELL_W;
+      const passX = wallX + dirX * PASS;
       const door1Y = er * CELL_H + CELL_H * 0.3;
       const door2Y = er * CELL_H + CELL_H * 0.7;
-      const closest = Math.abs(this.posY - door1Y) < Math.abs(this.posY - door2Y) ? door1Y : door2Y;
-      return { x: wallX, y: closest };
+      // Compute where straight-line path to each door crosses the wall.
+      // Pick the door whose gap actually contains that crossing point.
+      const tWall = Math.abs(passX - this.posX) > 1 ? (wallX - this.posX) / (passX - this.posX) : 0.5;
+      const cross1Y = this.posY + (door1Y - this.posY) * tWall;
+      const cross2Y = this.posY + (door2Y - this.posY) * tWall;
+      const d1ok = Math.abs(cross1Y - door1Y) < halfDoor;
+      const d2ok = Math.abs(cross2Y - door2Y) < halfDoor;
+      let doorY: number;
+      if (d1ok && d2ok) doorY = Math.abs(this.posY - door1Y) <= Math.abs(this.posY - door2Y) ? door1Y : door2Y;
+      else if (d1ok) doorY = door1Y;
+      else if (d2ok) doorY = door2Y;
+      else doorY = Math.abs(this.posY - door1Y) <= Math.abs(this.posY - door2Y) ? door1Y : door2Y;
+      return { x: passX, y: doorY };
     } else {
-      const wallY = (Math.min(er, er + Math.sign(tr - er)) + 1) * CELL_H;
+      // Crossing a horizontal wall
+      const dirY = Math.sign(tr - er);
+      const wallY = (Math.min(er, er + dirY) + 1) * CELL_H;
+      const passY = wallY + dirY * PASS;
       const door1X = ec * CELL_W + CELL_W * 0.3;
       const door2X = ec * CELL_W + CELL_W * 0.7;
-      const closest = Math.abs(this.posX - door1X) < Math.abs(this.posX - door2X) ? door1X : door2X;
-      return { x: closest, y: wallY };
+      // Compute where straight-line path to each door crosses the wall.
+      const tWall = Math.abs(passY - this.posY) > 1 ? (wallY - this.posY) / (passY - this.posY) : 0.5;
+      const cross1X = this.posX + (door1X - this.posX) * tWall;
+      const cross2X = this.posX + (door2X - this.posX) * tWall;
+      const d1ok = Math.abs(cross1X - door1X) < halfDoor;
+      const d2ok = Math.abs(cross2X - door2X) < halfDoor;
+      let doorX: number;
+      if (d1ok && d2ok) doorX = Math.abs(this.posX - door1X) <= Math.abs(this.posX - door2X) ? door1X : door2X;
+      else if (d1ok) doorX = door1X;
+      else if (d2ok) doorX = door2X;
+      else doorX = Math.abs(this.posX - door1X) <= Math.abs(this.posX - door2X) ? door1X : door2X;
+      return { x: doorX, y: passY };
     }
   }
 

@@ -2,7 +2,7 @@ export { SystemsBus } from "./SystemsBus";
 export { ObjectPool } from "./ObjectPool";
 export { SpatialGrid } from "./SpatialGrid";
 export { ResourceSystem } from "./ResourceSystem";
-export { createGameConfig, GAME_WIDTH, GAME_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT, CELL_W, CELL_H, ROOM_COLS, ROOM_ROWS, AI_TICK_RATE, MAX_AGENTS } from "./GameConfig";
+export { createGameConfig, GAME_WIDTH, GAME_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT, CELL_W, CELL_H, WALL_T, DOOR_W, ROOM_COLS, ROOM_ROWS, AI_TICK_RATE, MAX_AGENTS } from "./GameConfig";
 export { WaveManager } from "./WaveManager";
 export type { WaveConfig, WaveManagerConfig, WaveEvent, WaveEventType } from "./WaveManager";
 export { ScrapManager } from "./ScrapManager";

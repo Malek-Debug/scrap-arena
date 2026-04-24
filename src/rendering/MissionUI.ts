@@ -33,6 +33,14 @@ export class MissionUI {
     this.scene = scene;
     this.container = scene.add.container(0, 0).setDepth(DEPTH).setScrollFactor(0);
 
+    // Header label above mission slots
+    const header = scene.add.text(PANEL_X + 4, PANEL_Y - 16, "▸ OBJECTIVES", {
+      fontFamily: "monospace", fontSize: "10px",
+      color: "#ff8800cc", fontStyle: "bold", letterSpacing: 1,
+    }).setOrigin(0, 0);
+    const headerLine = scene.add.rectangle(PANEL_X, PANEL_Y - 3, PANEL_W, 1, 0xff880044, 1).setOrigin(0, 0);
+    this.container.add([header, headerLine]);
+
     for (let i = 0; i < 3; i++) {
       const y = PANEL_Y + i * (ROW_H + 4);
 

@@ -48,6 +48,7 @@ export class TitleScene extends Phaser.Scene {
 
     this.cameras.main.setBackgroundColor(BG);
     this.cameras.main.fadeIn(600, 0, 0, 0);
+    AudioManager.instance.init();        // initialize Web Audio context for procedural pad
     AudioManager.instance.setScene(this);
     AudioManager.instance.startTitleMusic();
 
