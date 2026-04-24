@@ -102,6 +102,16 @@ export class AudioManager {
     try { snd.stop(); snd.destroy(); } catch { /* ignore */ }
   }
 
+  /** Stop every active music layer, regardless of which scene started it. */
+  private _stopAllMusicFiles(): void {
+    this._stopMusicFile(this._phaserMainMusic);
+    this._stopMusicFile(this._phaserBossMusic2);
+    this._stopMusicFile(this._phaserTitleMusic2);
+    this._phaserMainMusic = null;
+    this._phaserBossMusic2 = null;
+    this._phaserTitleMusic2 = null;
+  }
+
   /** Call once on first user gesture to unlock Web Audio. */
   init(): void {
     if (this.ctx) return;
@@ -904,9 +914,9 @@ export class AudioManager {
 
   startMusic(theme: 'foundry' | 'circuit'): void {
     if (!this.ctx) return;
+    this._stopAllMusicFiles();
     if (this._musicGain) this.stopMusic();
     // Try file-based music first (rich NES loop)
-    if (this._phaserMainMusic) { this._stopMusicFile(this._phaserMainMusic); this._phaserMainMusic = null; }
     const fileMusic = this._musicFile('music_main', 0.22);
     if (fileMusic) {
       this._phaserMainMusic = fileMusic;
@@ -927,11 +937,8 @@ export class AudioManager {
   }
 
   stopMusic(): void {
-    // Stop file-based music
-    if (this._phaserMainMusic) {
-      this._stopMusicFile(this._phaserMainMusic);
-      this._phaserMainMusic = null;
-    }
+    // Stop every file-based music layer so scene transitions cannot leak audio.
+    this._stopAllMusicFiles();
     // Stop procedural music
     if (!this.ctx || !this._musicGain) return;
     this._rhythmRunning = false;
@@ -1057,6 +1064,10 @@ export class AudioManager {
 
   startBossMusic(): void {
     if (!this.ctx) return;
+    if (this._phaserTitleMusic2) {
+      this._stopMusicFile(this._phaserTitleMusic2);
+      this._phaserTitleMusic2 = null;
+    }
     // Duck the main world track (music_main) instead of stopping it, so
     // it can resume seamlessly after the boss is defeated.
     const mm = this._phaserMainMusic as unknown as { volume?: number; setVolume?: (v: number) => void } | null;
@@ -1144,6 +1155,14 @@ export class AudioManager {
   // ==========================================================================
 
   startTitleMusic(): void {
+    if (this._phaserMainMusic) {
+      this._stopMusicFile(this._phaserMainMusic);
+      this._phaserMainMusic = null;
+    }
+    if (this._phaserBossMusic2) {
+      this._stopMusicFile(this._phaserBossMusic2);
+      this._phaserBossMusic2 = null;
+    }
     // ── File-based title music via Phaser (handles its own audio unlock) ──
     if (this._phaserTitleMusic2) { this._stopMusicFile(this._phaserTitleMusic2); this._phaserTitleMusic2 = null; }
     const fileMusic = this._musicFile('music_title', 0.55);
