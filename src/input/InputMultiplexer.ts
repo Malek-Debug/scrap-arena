@@ -28,8 +28,6 @@ export class InputMultiplexer {
   private scene: Phaser.Scene;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private moveKeys!: {
-    W: Phaser.Input.Keyboard.Key;
-    A: Phaser.Input.Keyboard.Key;
     S: Phaser.Input.Keyboard.Key;
     D: Phaser.Input.Keyboard.Key;
     Z: Phaser.Input.Keyboard.Key;
@@ -56,8 +54,6 @@ export class InputMultiplexer {
     if (scene.input.keyboard) {
       this.cursors = scene.input.keyboard.createCursorKeys();
       this.moveKeys = {
-        W: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-        A: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
         S: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
         D: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
         Z: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z),
@@ -103,9 +99,9 @@ export class InputMultiplexer {
   private readKeyboard(s: InputState): void {
     if (!this.cursors) return;
 
-    if (this.cursors.left.isDown || this.moveKeys.A.isDown || this.moveKeys.Q.isDown) s.moveX -= 1;
+    if (this.cursors.left.isDown || this.moveKeys.Q.isDown) s.moveX -= 1;
     if (this.cursors.right.isDown || this.moveKeys.D.isDown) s.moveX += 1;
-    if (this.cursors.up.isDown || this.moveKeys.W.isDown || this.moveKeys.Z.isDown) s.moveY -= 1;
+    if (this.cursors.up.isDown || this.moveKeys.Z.isDown) s.moveY -= 1;
     if (this.cursors.down.isDown || this.moveKeys.S.isDown) s.moveY += 1;
 
     if (this.spaceKey.isDown) s.action1 = true;

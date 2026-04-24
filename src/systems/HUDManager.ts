@@ -411,7 +411,7 @@ export class HUDManager {
     const cStats = ctx.mapObstacles.getCorruptionStats();
     if (cStats.total > 0) {
       const pct = Math.round(cStats.avgCorruption);
-      this.corruptionText.setText(`[G] REPAIR  Corruption: ${pct}%`);
+      this.corruptionText.setText(`[G] REPAIR REACTOR  Corruption: ${pct}%`);
       this.corruptionText.setColor(pct > 50 ? "#ff2222" : pct > 25 ? "#ffaa44" : "#44ff88");
     } else {
       this.corruptionText.setText("");
@@ -579,7 +579,7 @@ export class HUDManager {
     const tips = [
       { t: 4000,  msg: "ZQSD / ←↑↓→ to move  •  Mouse to aim  •  LMB or SPACE to shoot", dur: 4500 },
       { t: 9500,  msg: "SHIFT or RMB to DASH  •  Rapid fire OVERHEATS weapon — let it cool!", dur: 5000 },
-      { t: 17000, msg: "Press Q to PHASE-SHIFT  •  FOUNDRY = red enemies attack YOU  •  CIRCUIT = purple/yellow attack REACTOR", dur: 6000 },
+      { t: 17000, msg: "Press T to PHASE-SHIFT  •  FOUNDRY = red enemies attack YOU  •  CIRCUIT = purple/yellow attack REACTOR", dur: 6000 },
       { t: 27000, msg: "Collect SCRAP ★ from enemies  •  [B] opens SHOP in ARMORY (top-right) for upgrades", dur: 5500 },
     ];
     for (const { t, msg, dur } of tips) {

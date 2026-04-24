@@ -48,8 +48,8 @@ export interface WaveConfig {
 }
 
 const DEFAULT_CONFIG: WaveManagerConfig = {
-  baseEnemyCount: 6,
-  enemyScaling: 1.26,
+  baseEnemyCount: 4,
+  enemyScaling: 1.18,
   restDurationMs: 4000,
 };
 
@@ -83,19 +83,19 @@ export class WaveManager {
   getWaveConfig(): WaveConfig {
     const wave = this.currentWave;
     const pressureMult =
-      wave <= 3 ? 0.85 :
-      wave <= 6 ? 1.0 :
-      wave <= 10 ? 1.15 :
-      1.3;
+      wave <= 3 ? 0.70 :
+      wave <= 6 ? 0.85 :
+      wave <= 10 ? 1.0 :
+      1.12;
 
-    const enemyCount = Math.max(4, Math.min(18, Math.floor(
+    const enemyCount = Math.max(2, Math.min(14, Math.floor(
       this.config.baseEnemyCount * Math.pow(this.config.enemyScaling, wave - 1) * pressureMult
     )));
-    const guardCount = wave >= 2 ? Math.min(1 + Math.floor((wave - 2) * 0.8), 9) : 0;
-    const collectorCount = wave >= 2 ? Math.min(2 + Math.floor((wave - 2) * 0.9), 9) : 0;
-    const turretCount = wave >= 3 ? Math.min(Math.floor((wave - 2) * 0.8), 6) : 0;
-    const sawbladeCount = wave >= 2 ? Math.min(1 + Math.floor((wave - 2) * 0.9), 6) : 0;
-    const welderCount = wave >= 4 ? Math.min(1 + Math.floor((wave - 4) * 0.7), 6) : 0;
+    const guardCount = wave >= 3 ? Math.min(1 + Math.floor((wave - 3) * 0.55), 7) : 0;
+    const collectorCount = wave >= 1 ? Math.min(1 + Math.floor((wave - 1) * 0.7), 8) : 0;
+    const turretCount = wave >= 4 ? Math.min(Math.floor((wave - 3) * 0.55), 5) : 0;
+    const sawbladeCount = wave >= 2 ? Math.min(1 + Math.floor((wave - 2) * 0.6), 5) : 0;
+    const welderCount = wave >= 5 ? Math.min(1 + Math.floor((wave - 5) * 0.5), 4) : 0;
     const enemyHp = 42 + wave * 13;
     const enemySpeed = Math.min(96 + wave * 8, 220);
 

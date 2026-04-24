@@ -125,6 +125,7 @@ export class MainScene extends Phaser.Scene {
   private storySystem!: StorySystem;
   private godMode = false;
   private _worldSwitchTutorialShown = false;
+  private _repairConsumed = false;
   private _ctx!: GameContext;
   private _abilityMgr!: AbilityManager;
   private _hudMgr!: HUDManager;
@@ -398,8 +399,9 @@ export class MainScene extends Phaser.Scene {
       this.playerShielded = propResults.playerShielded;
     }
     this.scrapManager.update(this.playerSprite.x, this.playerSprite.y, deltaMs);
+    this._repairConsumed = false;
     this._updateInteractMechanics();
-    if (Phaser.Input.Keyboard.JustDown(this.repairKey)) {
+    if (!this._repairConsumed && Phaser.Input.Keyboard.JustDown(this.repairKey)) {
       const repaired = this.mapObstacles.repairNearby(this.playerSprite.x, this.playerSprite.y, 100, 30);
       if (repaired) {
         const fx = this.add.circle(this.playerSprite.x, this.playerSprite.y, 40, 0x44ff88, 0.4).setDepth(15).setBlendMode(Phaser.BlendModes.ADD);
@@ -632,6 +634,28 @@ export class MainScene extends Phaser.Scene {
         hintText = "[ X ] RESTORE POWER";
         if (Phaser.Input.Keyboard.JustDown(this.interactKey)) {
           this._restoreReactorPower();
+          return;
+        }
+      }
+    }
+
+    // ── REACTOR REPAIR USING [G] ───────────────────────────
+    if (reactPos) {
+      const reactorDist = Math.hypot(px - reactPos.x, py - reactPos.y);
+      if (reactorDist < 140) {
+        hintText = this.reactorHp < this.reactorMaxHp ? "[ G ] REPAIR REACTOR" : "[ G ] MAINTAIN REACTOR";
+        if (Phaser.Input.Keyboard.JustDown(this.repairKey)) {
+          const repairedCorruption = this.mapObstacles.repairNearby(reactPos.x, reactPos.y, 150, 40);
+          const oldHp = this.reactorHp;
+          this.reactorHp = Math.min(this.reactorMaxHp, this.reactorHp + 50);
+          this._repairConsumed = true;
+          if (repairedCorruption || this.reactorHp > oldHp) {
+            AudioManager.instance.upgradeSelect();
+            Juice.screenShake(this, 0.002, 80);
+            this._storyCtrl?.showStoryHint("⚡ REACTOR REPAIRED", 1800);
+          }
+          if (this._reactorWarnShown25 && this.reactorHp > this.reactorMaxHp * 0.25) this._reactorWarnShown25 = false;
+          if (this._reactorWarnShown50 && this.reactorHp > this.reactorMaxHp * 0.5) this._reactorWarnShown50 = false;
           return;
         }
       }

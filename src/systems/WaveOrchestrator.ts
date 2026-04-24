@@ -73,7 +73,7 @@ export class WaveOrchestrator {
     const countMult   = dda.countMult;
     const scaledEnemyCount    = Math.max(1, Math.round(cfg.enemyCount    * countMult));
     const scaledGuardCount    = Math.round(cfg.guardCount    * countMult) + evt.modifiers.guardBonus;
-    const scaledCollectorCount = Math.round(cfg.collectorCount * countMult) + evt.modifiers.collectorBonus;
+      const scaledCollectorCount = Math.max(1, Math.round(cfg.collectorCount * countMult) + evt.modifiers.collectorBonus);
     const scaledTurretCount   = Math.round(cfg.turretCount   * countMult) + evt.modifiers.turretBonus;
     const scaledSawbladeCount = Math.round(cfg.sawbladeCount * countMult) + evt.modifiers.sawbladeBonus;
     const scaledWelderCount   = Math.round(cfg.welderCount   * countMult) + evt.modifiers.welderBonus;
