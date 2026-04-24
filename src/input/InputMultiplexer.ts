@@ -27,7 +27,14 @@ export interface InputState {
 export class InputMultiplexer {
   private scene: Phaser.Scene;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private wasd!: { W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key; S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key };
+  private moveKeys!: {
+    W: Phaser.Input.Keyboard.Key;
+    A: Phaser.Input.Keyboard.Key;
+    S: Phaser.Input.Keyboard.Key;
+    D: Phaser.Input.Keyboard.Key;
+    Z: Phaser.Input.Keyboard.Key;
+    Q: Phaser.Input.Keyboard.Key;
+  };
   private spaceKey!: Phaser.Input.Keyboard.Key;
   private shiftKey!: Phaser.Input.Keyboard.Key;
 
@@ -48,11 +55,13 @@ export class InputMultiplexer {
 
     if (scene.input.keyboard) {
       this.cursors = scene.input.keyboard.createCursorKeys();
-      this.wasd = {
+      this.moveKeys = {
         W: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
         A: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
         S: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
         D: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+        Z: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z),
+        Q: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q),
       };
       this.spaceKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
       this.shiftKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
@@ -94,10 +103,10 @@ export class InputMultiplexer {
   private readKeyboard(s: InputState): void {
     if (!this.cursors) return;
 
-    if (this.cursors.left.isDown || this.wasd.A.isDown) s.moveX -= 1;
-    if (this.cursors.right.isDown || this.wasd.D.isDown) s.moveX += 1;
-    if (this.cursors.up.isDown || this.wasd.W.isDown) s.moveY -= 1;
-    if (this.cursors.down.isDown || this.wasd.S.isDown) s.moveY += 1;
+    if (this.cursors.left.isDown || this.moveKeys.A.isDown || this.moveKeys.Q.isDown) s.moveX -= 1;
+    if (this.cursors.right.isDown || this.moveKeys.D.isDown) s.moveX += 1;
+    if (this.cursors.up.isDown || this.moveKeys.W.isDown || this.moveKeys.Z.isDown) s.moveY -= 1;
+    if (this.cursors.down.isDown || this.moveKeys.S.isDown) s.moveY += 1;
 
     if (this.spaceKey.isDown) s.action1 = true;
     if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) s.action1JustDown = true;

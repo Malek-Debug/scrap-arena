@@ -160,7 +160,7 @@ export class StoryController {
   /** Start a tutorial wave right in the HUB after intro cinematic. */
   private _startTutorialInHub(): void {
     this.storySystem.setPhase("tutorial");
-    this._showStoryHint("◉ TUTORIAL  •  WASD move  •  Mouse aim  •  Click / SPACE to shoot", 6000);
+    this._showStoryHint("◉ TUTORIAL  •  ZQSD / ←↑↓→ move  •  Mouse aim  •  Click / SPACE to shoot", 6000);
     this.ctx.scene.time.delayedCall(1500, () => {
       this.onTryTriggerWave();
     });

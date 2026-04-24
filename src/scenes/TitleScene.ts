@@ -159,7 +159,7 @@ export class TitleScene extends Phaser.Scene {
     this._buildMenuButton(cx, btnStartY, "▶   S T A R T   G A M E", 0xff5500, "#ff5500", "#ffffff", 1300, () => this._startGame());
 
     // ── Controls hint ──
-    const controlsHint = this.add.text(cx, cy + 196, "WASD move  •  Mouse aim  •  LMB shoot  •  Q shift  •  E / R / F abilities", {
+    const controlsHint = this.add.text(cx, cy + 196, "ZQSD move  •  Mouse aim  •  LMB shoot  •  Q shift  •  E / R / F abilities", {
       fontFamily: '"Courier New", Courier, monospace', fontSize: "12px", color: "#776644",
     }).setOrigin(0.5).setAlpha(0).setDepth(20);
     this.tweens.add({ targets: controlsHint, alpha: 0.8, duration: 500, delay: 2000 });
