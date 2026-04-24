@@ -72,11 +72,11 @@ export class WaveOrchestrator {
     const scaledSpeed = cfg.enemySpeed * dda.speedMult * evt.modifiers.speedMult;
     const countMult   = dda.countMult;
     const scaledEnemyCount    = Math.max(1, Math.round(cfg.enemyCount    * countMult));
-    const scaledGuardCount    = Math.round(cfg.guardCount    * countMult);
-    const scaledCollectorCount = Math.round(cfg.collectorCount * countMult);
+    const scaledGuardCount    = Math.round(cfg.guardCount    * countMult) + evt.modifiers.guardBonus;
+    const scaledCollectorCount = Math.round(cfg.collectorCount * countMult) + evt.modifiers.collectorBonus;
     const scaledTurretCount   = Math.round(cfg.turretCount   * countMult) + evt.modifiers.turretBonus;
     const scaledSawbladeCount = Math.round(cfg.sawbladeCount * countMult) + evt.modifiers.sawbladeBonus;
-    const scaledWelderCount   = Math.round(cfg.welderCount   * countMult);
+    const scaledWelderCount   = Math.round(cfg.welderCount   * countMult) + evt.modifiers.welderBonus;
 
     for (let i = 0; i < scaledEnemyCount; i++) {
       const { x, y } = this._randomEdgePosition();

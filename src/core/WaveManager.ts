@@ -11,22 +11,23 @@ export interface WaveEvent {
   modifiers: {
     hpMult: number; speedMult: number; countMult: number; damageMult: number;
     turretBonus: number; sawbladeBonus: number;
+    guardBonus: number; collectorBonus: number; welderBonus: number;
   };
 }
 
 const WAVE_EVENTS: Record<WaveEventType, WaveEvent> = {
-  normal:          { type: "normal",          label: "COMBAT WAVE",      description: "Destroy all enemies",                  color: "#00ff88", modifiers: { hpMult:1,   speedMult:1,   countMult:1,   damageMult:1,   turretBonus:0, sawbladeBonus:0 } },
-  elite_surge:     { type: "elite_surge",     label: "ELITE SURGE",      description: "Elite units — 2x HP & damage",         color: "#ff6600", modifiers: { hpMult:2,   speedMult:1.3, countMult:0.8, damageMult:2,   turretBonus:1, sawbladeBonus:2 } },
-  swarm:           { type: "swarm",           label: "SWARM PROTOCOL",   description: "Overwhelming numbers — stay mobile!",  color: "#ff0044", modifiers: { hpMult:0.5, speedMult:1.5, countMult:3,   damageMult:0.8, turretBonus:0, sawbladeBonus:3 } },
-  fortress:        { type: "fortress",        label: "FORTRESS MODE",    description: "Heavily armored positions",            color: "#ffaa00", modifiers: { hpMult:2.5, speedMult:0.6, countMult:0.6, damageMult:1.5, turretBonus:4, sawbladeBonus:0 } },
-  shadow_protocol: { type: "shadow_protocol", label: "SHADOW PROTOCOL",  description: "Enemies breach dimensions rapidly",    color: "#cc44ff", modifiers: { hpMult:1.2, speedMult:1.2, countMult:1.2, damageMult:1.5, turretBonus:2, sawbladeBonus:2 } },
-  final_push:      { type: "final_push",      label: "FINAL PUSH",       description: "Maximum resistance — survive!",        color: "#ffffff", modifiers: { hpMult:1.5, speedMult:1.3, countMult:2,   damageMult:1.5, turretBonus:3, sawbladeBonus:3 } },
+  normal:          { type: "normal",          label: "COMBAT WAVE",      description: "Destroy all enemies",                  color: "#00ff88", modifiers: { hpMult:1,   speedMult:1,   countMult:1,   damageMult:1,   turretBonus:0, sawbladeBonus:0, guardBonus:0, collectorBonus:0, welderBonus:0 } },
+  elite_surge:     { type: "elite_surge",     label: "ELITE SURGE",      description: "Elite units — 2x HP & damage",         color: "#ff6600", modifiers: { hpMult:2,   speedMult:1.3, countMult:0.8, damageMult:2,   turretBonus:1, sawbladeBonus:2, guardBonus:1, collectorBonus:0, welderBonus:1 } },
+  swarm:           { type: "swarm",           label: "SWARM PROTOCOL",   description: "Overwhelming numbers — stay mobile!",  color: "#ff0044", modifiers: { hpMult:0.5, speedMult:1.5, countMult:3,   damageMult:0.8, turretBonus:1, sawbladeBonus:3, guardBonus:1, collectorBonus:2, welderBonus:0 } },
+  fortress:        { type: "fortress",        label: "FORTRESS MODE",    description: "Heavily armored positions",            color: "#ffaa00", modifiers: { hpMult:2.5, speedMult:0.6, countMult:0.6, damageMult:1.5, turretBonus:4, sawbladeBonus:0, guardBonus:2, collectorBonus:0, welderBonus:1 } },
+  shadow_protocol: { type: "shadow_protocol", label: "SHADOW PROTOCOL",  description: "Enemies breach dimensions rapidly",    color: "#cc44ff", modifiers: { hpMult:1.2, speedMult:1.2, countMult:1.2, damageMult:1.5, turretBonus:2, sawbladeBonus:2, guardBonus:2, collectorBonus:2, welderBonus:1 } },
+  final_push:      { type: "final_push",      label: "FINAL PUSH",       description: "Maximum resistance — survive!",        color: "#ffffff", modifiers: { hpMult:1.5, speedMult:1.3, countMult:2,   damageMult:1.5, turretBonus:3, sawbladeBonus:3, guardBonus:2, collectorBonus:2, welderBonus:2 } },
 };
 
 const WAVE_EVENT_SEQUENCE: WaveEventType[] = [
-  "normal", "normal", "normal", "normal", "normal",
-  "elite_surge", "swarm", "normal", "shadow_protocol", "fortress",
-  "swarm", "elite_surge", "final_push",
+  "normal", "swarm", "normal", "shadow_protocol", "fortress",
+  "elite_surge", "swarm", "shadow_protocol", "fortress", "final_push",
+  "swarm", "elite_surge", "shadow_protocol", "final_push",
 ];
 
 export interface WaveManagerConfig {
@@ -47,8 +48,8 @@ export interface WaveConfig {
 }
 
 const DEFAULT_CONFIG: WaveManagerConfig = {
-  baseEnemyCount: 5,
-  enemyScaling: 1.24,
+  baseEnemyCount: 6,
+  enemyScaling: 1.26,
   restDurationMs: 4000,
 };
 
@@ -82,21 +83,21 @@ export class WaveManager {
   getWaveConfig(): WaveConfig {
     const wave = this.currentWave;
     const pressureMult =
-      wave <= 3 ? 0.7 :
-      wave <= 6 ? 0.9 :
-      wave <= 10 ? 1.05 :
-      1.2;
+      wave <= 3 ? 0.85 :
+      wave <= 6 ? 1.0 :
+      wave <= 10 ? 1.15 :
+      1.3;
 
-    const enemyCount = Math.max(3, Math.min(16, Math.floor(
+    const enemyCount = Math.max(4, Math.min(18, Math.floor(
       this.config.baseEnemyCount * Math.pow(this.config.enemyScaling, wave - 1) * pressureMult
     )));
-    const guardCount = wave >= 3 ? Math.min(Math.floor((wave - 2) * 0.65), 8) : 0;
-    const collectorCount = wave >= 2 ? Math.min(1 + Math.floor((wave - 2) * 0.7), 8) : 0;
-    const turretCount = wave >= 5 ? Math.min(Math.floor((wave - 4) * 0.7), 5) : 0;
-    const sawbladeCount = wave >= 4 ? Math.min(Math.floor((wave - 3) * 0.8), 5) : 0;
-    const welderCount = wave >= 6 ? Math.min(1 + Math.floor((wave - 6) * 0.6), 5) : 0;
-    const enemyHp = 38 + wave * 12;
-    const enemySpeed = Math.min(92 + wave * 7, 210);
+    const guardCount = wave >= 2 ? Math.min(1 + Math.floor((wave - 2) * 0.8), 9) : 0;
+    const collectorCount = wave >= 2 ? Math.min(2 + Math.floor((wave - 2) * 0.9), 9) : 0;
+    const turretCount = wave >= 3 ? Math.min(Math.floor((wave - 2) * 0.8), 6) : 0;
+    const sawbladeCount = wave >= 2 ? Math.min(1 + Math.floor((wave - 2) * 0.9), 6) : 0;
+    const welderCount = wave >= 4 ? Math.min(1 + Math.floor((wave - 4) * 0.7), 6) : 0;
+    const enemyHp = 42 + wave * 13;
+    const enemySpeed = Math.min(96 + wave * 8, 220);
 
     return { enemyCount, guardCount, collectorCount, turretCount, sawbladeCount, welderCount, enemyHp, enemySpeed };
   }

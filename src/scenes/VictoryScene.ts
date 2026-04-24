@@ -44,7 +44,7 @@ export class VictoryScene extends Phaser.Scene {
 
     // Audio
     AudioManager.instance.setScene(this);
-    AudioManager.instance.stopMusic();
+    AudioManager.instance.startVictoryMusic();
 
     // Leaderboard persistence (HMAC-protected via SecureStore).
     // Synchronous "peek" gives us a leaderboard snapshot to render NOW; the
@@ -375,9 +375,16 @@ export class VictoryScene extends Phaser.Scene {
     this.transitioning = true;
     this._cleanupTimers();
     this.cameras.main.fadeOut(600, 0, 0, 0);
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+    let switched = false;
+    const go = (): void => {
+      if (switched) return;
+      switched = true;
       this.scene.start("MainScene");
+    };
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      go();
     });
+    this.time.delayedCall(850, go);
   };
 
   private _mainMenu = (): void => {
@@ -385,9 +392,16 @@ export class VictoryScene extends Phaser.Scene {
     this.transitioning = true;
     this._cleanupTimers();
     this.cameras.main.fadeOut(600, 0, 0, 0);
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+    let switched = false;
+    const go = (): void => {
+      if (switched) return;
+      switched = true;
       this.scene.start("TitleScene");
+    };
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      go();
     });
+    this.time.delayedCall(850, go);
   };
 
   private _cleanupTimers(): void {

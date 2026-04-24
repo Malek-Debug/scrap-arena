@@ -101,6 +101,9 @@ export class PreloaderScene extends Phaser.Scene {
       ["music_main",        ["assets/audio/music_main.ogg", "assets/audio/Gameplay Music.mp3"]],
       ["music_boss",        ["assets/audio/music_boss.ogg", "assets/audio/Boss Music.mp3"]],
       ["music_title",       ["assets/audio/music_title.ogg", "assets/audio/Game Lobby.mp3"]],
+      ["music_lobby",       ["assets/audio/music_lobby.mp3", "assets/audio/Game Lobby.mp3"]],
+      ["music_gameover",    ["assets/audio/Boss Music.mp3", "assets/audio/music_boss.ogg"]],
+      ["music_victory",     ["assets/audio/music_lobby.mp3", "assets/audio/Game Lobby.mp3"]],
     ];
     for (const [key, url] of audioFiles) {
       this.load.audio(key, url);

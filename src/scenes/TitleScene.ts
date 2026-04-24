@@ -542,8 +542,15 @@ export class TitleScene extends Phaser.Scene {
     AudioManager.instance.stopTitleMusic();
     this.cameras.main.flash(200, 255, 100, 0);
     this.cameras.main.fadeOut(500, 0, 0, 0);
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+    let switched = false;
+    const go = (): void => {
+      if (switched) return;
+      switched = true;
       this.scene.start("MainScene");
+    };
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      go();
     });
+    this.time.delayedCall(700, go);
   }
 }

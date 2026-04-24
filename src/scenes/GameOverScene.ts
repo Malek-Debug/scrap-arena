@@ -40,7 +40,7 @@ export class GameOverScene extends Phaser.Scene {
 
     // Audio
     AudioManager.instance.setScene(this);
-    AudioManager.instance.stopMusic();
+    AudioManager.instance.startGameOverMusic();
 
     // Leaderboard (HMAC-protected via SecureStore; sync peek for UI render)
     type LeaderEntry = { score: number; wave: number; kills: number; maxCombo: number };
@@ -414,9 +414,16 @@ export class GameOverScene extends Phaser.Scene {
     this.restarting = true;
     this.cameras.main.shake(180, 0.012);
     this.cameras.main.fadeOut(400, 0, 0, 0);
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+    let switched = false;
+    const go = (): void => {
+      if (switched) return;
+      switched = true;
       this.scene.start("MainScene");
+    };
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      go();
     });
+    this.time.delayedCall(650, go);
   }
 
   private _mainMenu(): void {
@@ -424,8 +431,15 @@ export class GameOverScene extends Phaser.Scene {
     this.restarting = true;
     this.cameras.main.shake(180, 0.012);
     this.cameras.main.fadeOut(400, 0, 0, 0);
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+    let switched = false;
+    const go = (): void => {
+      if (switched) return;
+      switched = true;
       this.scene.start("TitleScene");
+    };
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      go();
     });
+    this.time.delayedCall(650, go);
   }
 }

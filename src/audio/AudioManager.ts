@@ -1119,6 +1119,24 @@ export class AudioManager {
     this._scheduleBossRhythm();
   }
 
+  startGameOverMusic(): void {
+    // Dedicated game-over routing (falls back gracefully if a key is missing).
+    this.stopMusic();
+    const over = this._musicFile('music_gameover', 0.26)
+      ?? this._musicFile('music_boss', 0.22)
+      ?? this._musicFile('music_title', 0.34);
+    if (over) this._phaserTitleMusic2 = over;
+  }
+
+  startVictoryMusic(): void {
+    // Dedicated victory routing (falls back to lobby/title ambience).
+    this.stopMusic();
+    const vic = this._musicFile('music_victory', 0.34)
+      ?? this._musicFile('music_lobby', 0.34)
+      ?? this._musicFile('music_title', 0.34);
+    if (vic) this._phaserTitleMusic2 = vic;
+  }
+
   stopBossMusic(): void {
     // Stop file-based boss music
     if (this._phaserBossMusic2) {
@@ -1165,7 +1183,8 @@ export class AudioManager {
     }
     // ── File-based title music via Phaser (handles its own audio unlock) ──
     if (this._phaserTitleMusic2) { this._stopMusicFile(this._phaserTitleMusic2); this._phaserTitleMusic2 = null; }
-    const fileMusic = this._musicFile('music_title', 0.55);
+    const fileMusic = this._musicFile('music_lobby', 0.50)
+      ?? this._musicFile('music_title', 0.55);
     if (fileMusic) {
       this._phaserTitleMusic2 = fileMusic;
     }
