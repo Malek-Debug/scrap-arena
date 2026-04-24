@@ -261,20 +261,22 @@ export class UpgradeUI {
 
       // Interactivity (affordable only)
       if (affordable) {
-        cardBg.setInteractive({ useHandCursor: true });
-        cardBg.on("pointerover", () => {
+        const cardHit = this.scene.add.zone(cx, cardY, cardW, cardH)
+          .setScrollFactor(0).setDepth(DEPTH + 1).setInteractive({ useHandCursor: true });
+        this.elements.push(cardHit);
+        cardHit.on("pointerover", () => {
           cardBg.setFillStyle(0x1e2040);
           cardBg.setStrokeStyle(3, typeColor);
           cardBg.setScale(1.04);
           iconText.setScale(1.1);
         });
-        cardBg.on("pointerout", () => {
+        cardHit.on("pointerout", () => {
           cardBg.setFillStyle(COL.cardBg);
           cardBg.setStrokeStyle(2, borderColor);
           cardBg.setScale(1.0);
           iconText.setScale(1.0);
         });
-        cardBg.on("pointerdown", () => { onSelect(upgrade.id); });
+        cardHit.on("pointerdown", () => { onSelect(upgrade.id); });
       }
     });
 
@@ -292,9 +294,12 @@ export class UpgradeUI {
       .rectangle(GAME_WIDTH / 2, skipY, 188, skipH, 0x150505)
       .setDepth(DEPTH).setScrollFactor(0)
       .setStrokeStyle(2, 0xff4433)
-      .setInteractive({ useHandCursor: true })
       .setAlpha(0);
     this.elements.push(skipBg);
+
+    const skipHit = this.scene.add.zone(GAME_WIDTH / 2, skipY, 188, skipH)
+      .setDepth(DEPTH + 1).setScrollFactor(0).setInteractive({ useHandCursor: true });
+    this.elements.push(skipHit);
 
     const skipLabel = this.scene.add
       .text(GAME_WIDTH / 2, skipY, "SKIP  [ESC]", {
@@ -304,9 +309,9 @@ export class UpgradeUI {
     this.elements.push(skipLabel);
     this.scene.tweens.add({ targets: [skipBg, skipLabel], alpha: 1, duration: 300, delay: 420 });
 
-    skipBg.on("pointerover", () => { skipBg.setFillStyle(0x3a1010); skipBg.setStrokeStyle(2, 0xff6655); });
-    skipBg.on("pointerout", () => { skipBg.setFillStyle(0x150505); skipBg.setStrokeStyle(2, 0xff4433); });
-    skipBg.on("pointerdown", () => onSkip());
+    skipHit.on("pointerover", () => { skipBg.setFillStyle(0x3a1010); skipBg.setStrokeStyle(2, 0xff6655); });
+    skipHit.on("pointerout", () => { skipBg.setFillStyle(0x150505); skipBg.setStrokeStyle(2, 0xff4433); });
+    skipHit.on("pointerdown", () => onSkip());
 
     // ── Keyboard support ──────────────────────────────────────────────────────
     this.keyHandler = (e: KeyboardEvent) => {

@@ -973,7 +973,7 @@ export class MainScene extends Phaser.Scene {
       const draw = (hov: boolean) => { bg.clear(); bg.fillStyle(hov ? btn.color : 0x0a0a0a, hov ? 0.2 : 0.85); bg.fillRect(cx-130, btn.y-22, 260, 44); bg.lineStyle(2, btn.color, hov ? 1 : 0.6); bg.strokeRect(cx-130, btn.y-22, 260, 44); };
       draw(false);
       const txt = this.add.text(cx, btn.y, btn.label, { fontFamily: "monospace", fontSize: "18px", color: btn.hex, fontStyle: "bold" }).setOrigin(0.5);
-      const hit = this.add.rectangle(cx, btn.y, 260, 44).setAlpha(0.001).setInteractive({ useHandCursor: true });
+      const hit = this.add.zone(cx, btn.y, 260, 44).setInteractive({ useHandCursor: true });
       hit.on("pointerover", () => { draw(true); txt.setColor("#ffffff"); });
       hit.on("pointerout", () => { draw(false); txt.setColor(btn.hex); });
       hit.on("pointerdown", btn.action);

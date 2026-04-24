@@ -165,6 +165,11 @@ export class HUDManager {
     shopBtn.on("pointerover", () => shopBtn.setColor("#ffffff"));
     shopBtn.on("pointerout", () => shopBtn.setColor("#ffcc00"));
     shopBtn.on("pointerdown", () => this.onOpenShop());
+    const shopHit = scene.add.zone(GAME_WIDTH - 80, 22, 176, 36)
+      .setScrollFactor(0).setDepth(104).setInteractive({ useHandCursor: true });
+    shopHit.on("pointerover", () => shopBtn.setColor("#ffffff"));
+    shopHit.on("pointerout", () => shopBtn.setColor("#ffcc00"));
+    shopHit.on("pointerdown", () => this.onOpenShop());
 
     this.enemyHpGfx = scene.add.graphics().setDepth(55);
 

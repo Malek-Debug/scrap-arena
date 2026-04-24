@@ -293,8 +293,8 @@ export class VictoryScene extends Phaser.Scene {
       fontFamily: "monospace", fontSize: "13px", color: wallet.isConnected ? "#00ff88" : "#ffcc00",
     }).setOrigin(0.5).setDepth(11);
 
-    const hit = this.add.rectangle(x, y, 320, 30).setAlpha(0.001)
-      .setInteractive({ useHandCursor: true }).setDepth(12);
+    const hit = this.add.zone(x, y, 320, 30)
+      .setInteractive({ useHandCursor: true }).setDepth(12).setScrollFactor(0);
     hit.on("pointerover", () => draw(true, wallet.isConnected));
     hit.on("pointerout",  () => draw(false, wallet.isConnected));
     hit.on("pointerdown", async () => {
@@ -328,7 +328,7 @@ export class VictoryScene extends Phaser.Scene {
     const txt = this.add.text(x, y, label, {
       fontFamily: "monospace", fontSize: "18px", color: borderHex, fontStyle: "bold",
     }).setOrigin(0.5).setDepth(11);
-    const hit = this.add.rectangle(x, y, W, H).setAlpha(0.001).setInteractive({ useHandCursor: true }).setDepth(12);
+    const hit = this.add.zone(x, y, W, H).setInteractive({ useHandCursor: true }).setDepth(12).setScrollFactor(0);
     hit.on("pointerover", () => { drawBg(true); txt.setColor(hoverHex); });
     hit.on("pointerout", () => { drawBg(false); txt.setColor(borderHex); });
     hit.on("pointerdown", onClick);

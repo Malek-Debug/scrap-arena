@@ -265,7 +265,7 @@ export class TitleScene extends Phaser.Scene {
       color: borderHex, fontStyle: "bold",
     }).setOrigin(0.5).setDepth(20).setAlpha(0);
 
-    const hit = this.add.rectangle(x, y, W, H).setAlpha(0.001).setInteractive({ useHandCursor: true }).setDepth(21);
+    const hit = this.add.zone(x, y, W, H).setInteractive({ useHandCursor: true }).setDepth(21).setScrollFactor(0);
     hit.on("pointerover", () => { drawBg(true); txt.setColor(hoverHex); });
     hit.on("pointerout", () => { drawBg(false); txt.setColor(borderHex); });
     hit.on("pointerdown", onClick);
@@ -406,8 +406,8 @@ export class TitleScene extends Phaser.Scene {
     drawWalletBtn(false, false);
 
     const hitW = 180, hitH = 26;
-    const hit = this.add.rectangle(bx + hitW / 2, by - hitH / 2, hitW, hitH)
-      .setAlpha(0.001).setInteractive({ useHandCursor: true }).setDepth(32);
+    const hit = this.add.zone(bx + hitW / 2, by - hitH / 2, hitW, hitH)
+      .setInteractive({ useHandCursor: true }).setDepth(32).setScrollFactor(0);
     hit.on("pointerover", () => drawWalletBtn(true, wallet.isConnected));
     hit.on("pointerout",  () => drawWalletBtn(false, wallet.isConnected));
     hit.on("pointerdown", async () => {

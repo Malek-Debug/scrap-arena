@@ -347,8 +347,8 @@ export class GameOverScene extends Phaser.Scene {
     };
     draw(false, wallet.isConnected);
 
-    const hit = this.add.rectangle(x, y, 280, 28).setAlpha(0.001)
-      .setInteractive({ useHandCursor: true }).setDepth(12);
+    const hit = this.add.zone(x, y, 280, 28)
+      .setInteractive({ useHandCursor: true }).setDepth(12).setScrollFactor(0);
     hit.on("pointerover", () => draw(true, wallet.isConnected));
     hit.on("pointerout",  () => draw(false, wallet.isConnected));
     hit.on("pointerdown", async () => {
@@ -385,7 +385,7 @@ export class GameOverScene extends Phaser.Scene {
       fontFamily: "monospace", fontSize: "18px", color: borderHex, fontStyle: "bold",
     }).setOrigin(0.5).setAlpha(0).setDepth(11);
 
-    const hit = this.add.rectangle(x, y, W, H).setAlpha(0.001).setInteractive({ useHandCursor: true }).setDepth(12);
+    const hit = this.add.zone(x, y, W, H).setInteractive({ useHandCursor: true }).setDepth(12).setScrollFactor(0);
     hit.on("pointerover", () => { drawBg(true); txt.setColor(hoverHex); });
     hit.on("pointerout", () => { drawBg(false); txt.setColor(borderHex); });
     hit.on("pointerdown", onClick);

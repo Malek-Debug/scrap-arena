@@ -24,8 +24,9 @@ const WAVE_EVENTS: Record<WaveEventType, WaveEvent> = {
 };
 
 const WAVE_EVENT_SEQUENCE: WaveEventType[] = [
-  "normal", "normal", "swarm", "fortress", "normal",
-  "elite_surge", "swarm", "shadow_protocol", "fortress", "final_push",
+  "normal", "normal", "normal", "normal", "normal",
+  "elite_surge", "swarm", "normal", "shadow_protocol", "fortress",
+  "swarm", "elite_surge", "final_push",
 ];
 
 export interface WaveManagerConfig {
@@ -46,8 +47,8 @@ export interface WaveConfig {
 }
 
 const DEFAULT_CONFIG: WaveManagerConfig = {
-  baseEnemyCount: 5,
-  enemyScaling: 1.25,
+  baseEnemyCount: 4,
+  enemyScaling: 1.2,
   restDurationMs: 4000,
 };
 
@@ -80,16 +81,22 @@ export class WaveManager {
 
   getWaveConfig(): WaveConfig {
     const wave = this.currentWave;
-    const enemyCount = Math.min(12, Math.floor(
-      this.config.baseEnemyCount * Math.pow(this.config.enemyScaling, wave - 1)
-    ));
-    const guardCount = Math.min(1 + Math.floor(wave * 0.7), 8);
-    const collectorCount = Math.min(2 + Math.floor(wave * 0.6), 8);
-    const turretCount = wave >= 4 ? Math.min(Math.floor((wave - 3) * 0.8), 4) : 0;
-    const sawbladeCount = wave >= 2 ? Math.min(wave - 1, 4) : 0;
-    const welderCount = wave >= 2 ? Math.min(1 + Math.floor((wave - 2) * 0.6), 4) : 0;
-    const enemyHp = 40 + wave * 12;
-    const enemySpeed = Math.min(95 + wave * 7, 200);
+    const pressureMult =
+      wave <= 3 ? 0.45 :
+      wave <= 6 ? 0.65 :
+      wave <= 10 ? 0.8 :
+      1.0;
+
+    const enemyCount = Math.max(2, Math.min(14, Math.floor(
+      this.config.baseEnemyCount * Math.pow(this.config.enemyScaling, wave - 1) * pressureMult
+    )));
+    const guardCount = wave >= 4 ? Math.min(Math.floor((wave - 3) * 0.55), 7) : 0;
+    const collectorCount = wave >= 2 ? Math.min(1 + Math.floor((wave - 2) * 0.55), 7) : 0;
+    const turretCount = wave >= 6 ? Math.min(Math.floor((wave - 5) * 0.6), 4) : 0;
+    const sawbladeCount = wave >= 5 ? Math.min(Math.floor((wave - 4) * 0.7), 4) : 0;
+    const welderCount = wave >= 7 ? Math.min(1 + Math.floor((wave - 7) * 0.5), 4) : 0;
+    const enemyHp = 34 + wave * 10;
+    const enemySpeed = Math.min(85 + wave * 6, 190);
 
     return { enemyCount, guardCount, collectorCount, turretCount, sawbladeCount, welderCount, enemyHp, enemySpeed };
   }
