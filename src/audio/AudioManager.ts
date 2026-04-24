@@ -1144,7 +1144,7 @@ export class AudioManager {
   // ==========================================================================
 
   startTitleMusic(): void {
-    // ── File-based WAV always plays via Phaser (handles its own audio unlock) ──
+    // ── File-based title music via Phaser (handles its own audio unlock) ──
     if (this._phaserTitleMusic2) { this._stopMusicFile(this._phaserTitleMusic2); this._phaserTitleMusic2 = null; }
     const fileMusic = this._musicFile('music_title', 0.55);
     if (fileMusic) {

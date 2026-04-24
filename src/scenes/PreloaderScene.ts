@@ -76,7 +76,7 @@ export class PreloaderScene extends Phaser.Scene {
     this.load.spritesheet("boss_proj_sheet", "assets/enemies/Reactor_Man_Projectile.png", { frameWidth: 16, frameHeight: 16 });
 
     // ── Audio assets (Kenney CC0) ──────────────────────────────────────────
-    const audioFiles: [string, string][] = [
+    const audioFiles: [string, string | string[]][] = [
       ["sfx_shoot",         "assets/audio/sfx_shoot.ogg"],
       ["sfx_shoot2",        "assets/audio/sfx_shoot2.ogg"],
       ["sfx_shoot_large",   "assets/audio/sfx_shoot_large.ogg"],
@@ -97,9 +97,10 @@ export class PreloaderScene extends Phaser.Scene {
       ["sfx_switch",        "assets/audio/sfx_switch.ogg"],
       ["sfx_powerup",       "assets/audio/sfx_powerup.ogg"],
       ["sfx_shield",        "assets/audio/sfx_shield.ogg"],
-      ["music_main",        "assets/audio/Gameplay Music.mp3"],
-      ["music_boss",        "assets/audio/Boss Music.mp3"],
-      ["music_title",       "assets/audio/music_lobby.wav"],
+      // Load compact formats first; keep mp3 fallback for wider compatibility.
+      ["music_main",        ["assets/audio/music_main.ogg", "assets/audio/Gameplay Music.mp3"]],
+      ["music_boss",        ["assets/audio/music_boss.ogg", "assets/audio/Boss Music.mp3"]],
+      ["music_title",       ["assets/audio/music_title.ogg", "assets/audio/Game Lobby.mp3"]],
     ];
     for (const [key, url] of audioFiles) {
       this.load.audio(key, url);
