@@ -28,15 +28,17 @@ export class InputMultiplexer {
   private scene: Phaser.Scene;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private moveKeys!: {
+    W: Phaser.Input.Keyboard.Key;
+    A: Phaser.Input.Keyboard.Key;
     S: Phaser.Input.Keyboard.Key;
     D: Phaser.Input.Keyboard.Key;
-    Z: Phaser.Input.Keyboard.Key;
-    Q: Phaser.Input.Keyboard.Key;
   };
   private spaceKey!: Phaser.Input.Keyboard.Key;
   private shiftKey!: Phaser.Input.Keyboard.Key;
 
   private readonly deadzone = 0.15;
+  private readonly touchStickRadius = 76;
+  private touchMoveOrigin: { id: number; x: number; y: number } | null = null;
   readonly state: InputState;
 
   constructor(scene: Phaser.Scene) {
@@ -54,10 +56,10 @@ export class InputMultiplexer {
     if (scene.input.keyboard) {
       this.cursors = scene.input.keyboard.createCursorKeys();
       this.moveKeys = {
+        W: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+        A: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
         S: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
         D: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
-        Z: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z),
-        Q: scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q),
       };
       this.spaceKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
       this.shiftKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
@@ -82,6 +84,9 @@ export class InputMultiplexer {
     // --- Mouse ---
     this.readMouse(s, playerX, playerY);
 
+    // --- Touch ---
+    this.readTouch(s, playerX, playerY);
+
     // --- Gamepad (first connected pad) ---
     this.readGamepad(s);
 
@@ -99,9 +104,9 @@ export class InputMultiplexer {
   private readKeyboard(s: InputState): void {
     if (!this.cursors) return;
 
-    if (this.cursors.left.isDown || this.moveKeys.Q.isDown) s.moveX -= 1;
+    if (this.cursors.left.isDown || this.moveKeys.A.isDown) s.moveX -= 1;
     if (this.cursors.right.isDown || this.moveKeys.D.isDown) s.moveX += 1;
-    if (this.cursors.up.isDown || this.moveKeys.Z.isDown) s.moveY -= 1;
+    if (this.cursors.up.isDown || this.moveKeys.W.isDown) s.moveY -= 1;
     if (this.cursors.down.isDown || this.moveKeys.S.isDown) s.moveY += 1;
 
     if (this.spaceKey.isDown) s.action1 = true;
@@ -122,6 +127,44 @@ export class InputMultiplexer {
     }
     // JustDown for mouse handled via pointer events
     if (pointer.button === 0 && pointer.getDuration() < 100) s.action1JustDown = true;
+  }
+
+  private readTouch(s: InputState, playerX: number, playerY: number): void {
+    const input = this.scene.input as unknown as { manager?: { pointers?: Phaser.Input.Pointer[] } };
+    const pointers = input.manager?.pointers ?? [];
+    const touches = pointers.filter(p => p.isDown && (p as unknown as { pointerType?: string }).pointerType === "touch");
+    if (touches.length === 0) {
+      this.touchMoveOrigin = null;
+      return;
+    }
+
+    const screenMidX = this.scene.scale.width * 0.5;
+    const leftTouch = touches.find(p => p.downX < screenMidX);
+    const rightTouch = touches.find(p => p.downX >= screenMidX);
+
+    if (leftTouch) {
+      if (!this.touchMoveOrigin || this.touchMoveOrigin.id !== leftTouch.id) {
+        this.touchMoveOrigin = { id: leftTouch.id, x: leftTouch.downX, y: leftTouch.downY };
+      }
+      const dx = Phaser.Math.Clamp((leftTouch.x - this.touchMoveOrigin.x) / this.touchStickRadius, -1, 1);
+      const dy = Phaser.Math.Clamp((leftTouch.y - this.touchMoveOrigin.y) / this.touchStickRadius, -1, 1);
+      if (Math.abs(dx) > this.deadzone || Math.abs(dy) > this.deadzone) {
+        s.moveX = dx;
+        s.moveY = dy;
+      }
+    }
+
+    if (rightTouch) {
+      s.pointerX = rightTouch.worldX;
+      s.pointerY = rightTouch.worldY;
+      s.aimAngle = Math.atan2(rightTouch.worldY - playerY, rightTouch.worldX - playerX);
+      s.action1 = true;
+      const dashZone = rightTouch.x > this.scene.scale.width * 0.78 && rightTouch.y > this.scene.scale.height * 0.68;
+      if (dashZone && rightTouch.getDuration() < 140) {
+        s.action2 = true;
+        s.action2JustDown = true;
+      }
+    }
   }
 
   private readGamepad(s: InputState): void {

@@ -1287,6 +1287,9 @@ export class AudioManager {
     if (this.masterGain) {
       this.masterGain.gain.value = muted ? 0 : 0.12;
     }
+    try {
+      if (this._scene?.sound) this._scene.sound.mute = muted;
+    } catch { /* ignore */ }
   }
 
   get isMuted(): boolean { return this.muted; }

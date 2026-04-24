@@ -167,6 +167,11 @@ export class MainScene extends Phaser.Scene {
     this.fKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.F);
     this.cKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.C);
     this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC).on('down', () => this._togglePause());
+    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.M).on('down', () => {
+      const audio = AudioManager.instance;
+      audio.setMute(!audio.isMuted);
+      this._showPhysicsZoneBanner(audio.isMuted ? "AUDIO MUTED" : "AUDIO ONLINE");
+    });
     this.repairKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.G);
     this.storySystem = new StorySystem();
     this.interactKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.X);
@@ -556,7 +561,10 @@ export class MainScene extends Phaser.Scene {
     this.playerSprite = this.physics.add.sprite(spawnX, spawnY, tex);
     this.playerSprite.setCollideWorldBounds(true).setDepth(50).setScale(usePxPlayer ? 2.2 : 1.3).setData("hp", this.playerHp);
     if (usePxPlayer) this.playerSprite.play("player_idle");
-    this.playerGlow = this.add.circle(spawnX, spawnY, 20, 0x00ff88, 0.3).setDepth(49).setBlendMode(Phaser.BlendModes.ADD);
+    this.playerGlow = this.add.circle(spawnX, spawnY, 26, 0x00ff88, 0.22)
+      .setDepth(49)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setStrokeStyle(2, 0xaaffdd, 0.55);
   }
 
   private _spawnResources(count: number): void {

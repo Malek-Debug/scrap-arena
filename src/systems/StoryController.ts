@@ -160,7 +160,7 @@ export class StoryController {
   /** Start a tutorial wave right in the HUB after intro cinematic. */
   private _startTutorialInHub(): void {
     this.storySystem.setPhase("tutorial");
-    this._showStoryHint("◉ TUTORIAL  •  ZQSD / ←↑↓→ move  •  Mouse aim  •  Click / SPACE to shoot", 6000);
+    this._showStoryHint("◉ TUTORIAL  •  WASD / arrows move  •  Mouse aim  •  Click / SPACE to shoot", 6000);
     this.ctx.scene.time.delayedCall(1500, () => {
       this.onTryTriggerWave();
     });
@@ -168,7 +168,7 @@ export class StoryController {
     // Reactor defense warning — most critical mechanic
     this.ctx.scene.time.delayedCall(13000, () => {
       if (this.ctx.gameOver || this.ctx.waveManager.currentWave > 1) return;
-      this._showStoryHint("⚡ REACTOR CORE — room ABOVE! CIRCUIT enemies (purple/yellow) try to DESTROY it  •  Press T to switch worlds & defend!", 8000);
+      this._showStoryHint("⚡ REACTOR CORE — room ABOVE! CIRCUIT enemies (purple/yellow) try to DESTROY it  •  Press Q to switch worlds & defend!", 8000);
       this._showReactorArrow();
     });
 

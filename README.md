@@ -35,6 +35,8 @@
 | **W A S D** | Move around the arena |
 | **🖱️ Mouse / LMB** | Aim & shoot at enemies |
 | **SHIFT** | Dash (quick escape move) |
+| **Q** | Phase-shift between Foundry and Circuit worlds |
+| **E / R / F / C** | Special abilities |
 | **M** | Toggle audio mute |
 | **SPACE / ENTER** | Start game (on title screen) |
 

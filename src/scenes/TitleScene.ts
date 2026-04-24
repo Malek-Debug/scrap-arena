@@ -32,6 +32,7 @@ export class TitleScene extends Phaser.Scene {
   private gearGfx!:   Phaser.GameObjects.Graphics;
   private sparkGfx!:  Phaser.GameObjects.Graphics;
   private pipeGfx!:   Phaser.GameObjects.Graphics;
+  private coreGfx!:   Phaser.GameObjects.Graphics;
 
   private sparks: Spark[] = [];
   private pipes:  Pipe[]  = [];
@@ -72,6 +73,7 @@ export class TitleScene extends Phaser.Scene {
     this.gridGfx  = this.add.graphics().setDepth(0);
     this.pipeGfx  = this.add.graphics().setDepth(1);
     this.gearGfx  = this.add.graphics().setDepth(2);
+    this.coreGfx  = this.add.graphics().setDepth(8);
     this.sparkGfx = this.add.graphics().setDepth(4);
 
     const cx = GAME_WIDTH / 2;
@@ -159,10 +161,15 @@ export class TitleScene extends Phaser.Scene {
     this._buildMenuButton(cx, btnStartY, "▶   S T A R T   G A M E", 0xff5500, "#ff5500", "#ffffff", 1300, () => this._startGame());
 
     // ── Controls hint ──
-    const controlsHint = this.add.text(cx, cy + 196, "ZQSD move  •  Mouse aim  •  LMB shoot  •  T shift  •  E / R / F abilities", {
-      fontFamily: '"Courier New", Courier, monospace', fontSize: "12px", color: "#776644",
+    const controlsHint = this.add.text(cx, cy + 196, "WASD / arrows move  |  Mouse aim  |  LMB shoot  |  SHIFT dash  |  Q phase-shift", {
+      fontFamily: '"Courier New", Courier, monospace', fontSize: "13px", color: "#aa8058",
     }).setOrigin(0.5).setAlpha(0).setDepth(20);
     this.tweens.add({ targets: controlsHint, alpha: 0.8, duration: 500, delay: 2000 });
+
+    const touchHint = this.add.text(cx, cy + 218, "Touch: left side moves, right side shoots, bottom-right flick dashes", {
+      fontFamily: '"Courier New", Courier, monospace', fontSize: "11px", color: "#446c66",
+    }).setOrigin(0.5).setAlpha(0).setDepth(20);
+    this.tweens.add({ targets: touchHint, alpha: 0.7, duration: 500, delay: 2250 });
 
     // ── Lore crawl — evolving 3-act narrative beats, looping ──
     const loreText = this.add.text(cx, cy + 240, "", {
@@ -193,6 +200,11 @@ export class TitleScene extends Phaser.Scene {
     // ── Keyboard shortcuts ──
     this.input.keyboard!.on("keydown-SPACE", () => this._startGame());
     this.input.keyboard!.on("keydown-ENTER", () => this._startGame());
+    this.input.keyboard!.on("keydown-M", () => {
+      const audio = AudioManager.instance;
+      audio.setMute(!audio.isMuted);
+      this._flashStatus(audio.isMuted ? "AUDIO MUTED" : "AUDIO ONLINE", audio.isMuted ? "#ff8844" : "#00ff88");
+    });
 
     // ── PostFX ──
     if (!this.scene.isActive("PostFX")) this.scene.launch("PostFX");
@@ -235,6 +247,7 @@ export class TitleScene extends Phaser.Scene {
     this._drawGrid();
     this._drawPipes();
     this._drawGears();
+    this._drawMachineCore();
     this._drawSparks();
   }
 
@@ -426,6 +439,74 @@ export class TitleScene extends Phaser.Scene {
       if (state.status === "connected") drawWalletBtn(false, true);
     });
     if (wallet.isConnected) drawWalletBtn(false, true);
+  }
+
+  private _drawMachineCore(): void {
+    const g = this.coreGfx;
+    g.clear();
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2 - 34;
+    const t = this.elapsed * 0.001;
+    const pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
+
+    g.fillStyle(0xff5500, 0.05 + pulse * 0.025);
+    g.fillCircle(cx, cy, 250 + pulse * 16);
+    g.fillStyle(0x00ff88, 0.035);
+    g.fillCircle(cx, cy, 142 + pulse * 8);
+
+    for (let i = 0; i < 4; i++) {
+      const r = 84 + i * 38;
+      const a0 = t * (i % 2 === 0 ? 0.7 : -0.45) + i * 0.8;
+      g.lineStyle(i === 0 ? 3 : 2, i % 2 === 0 ? 0xff6600 : 0x00ff88, 0.28 - i * 0.035);
+      g.beginPath();
+      g.arc(cx, cy, r, a0, a0 + Math.PI * 1.35, false);
+      g.strokePath();
+      g.beginPath();
+      g.arc(cx, cy, r + 8, a0 + Math.PI * 1.55, a0 + Math.PI * 1.95, false);
+      g.strokePath();
+    }
+
+    g.lineStyle(1, 0xff8844, 0.18);
+    for (let i = 0; i < 12; i++) {
+      const a = t * 0.25 + (Math.PI * 2 * i) / 12;
+      const x1 = cx + Math.cos(a) * 72;
+      const y1 = cy + Math.sin(a) * 72;
+      const x2 = cx + Math.cos(a) * 210;
+      const y2 = cy + Math.sin(a) * 210;
+      g.lineBetween(x1, y1, x2, y2);
+      if (i % 3 === 0) {
+        g.fillStyle(0x00ff88, 0.3 + pulse * 0.25);
+        g.fillCircle(x2, y2, 3 + pulse * 2);
+      }
+    }
+
+    g.fillStyle(0x05020c, 0.86);
+    g.fillCircle(cx, cy, 58);
+    g.lineStyle(3, 0xff6600, 0.65);
+    g.strokeCircle(cx, cy, 58);
+    g.lineStyle(1, 0x00ff88, 0.45);
+    g.strokeCircle(cx, cy, 42 + pulse * 4);
+    g.fillStyle(0x00ff88, 0.16 + pulse * 0.10);
+    g.fillCircle(cx, cy, 24 + pulse * 4);
+  }
+
+  private _flashStatus(message: string, color: string): void {
+    const t = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 52, message, {
+      fontFamily: '"Courier New", Courier, monospace',
+      fontSize: "13px",
+      color,
+      backgroundColor: "#05050ecc",
+      padding: { x: 10, y: 5 },
+    }).setOrigin(0.5).setDepth(40).setAlpha(0);
+    this.tweens.add({
+      targets: t,
+      alpha: 1,
+      y: t.y - 8,
+      duration: 180,
+      onComplete: () => this.time.delayedCall(900, () => {
+        this.tweens.add({ targets: t, alpha: 0, y: t.y - 12, duration: 260, onComplete: () => t.destroy() });
+      }),
+    });
   }
 
   private _showWalletPanel(message: string): void {
