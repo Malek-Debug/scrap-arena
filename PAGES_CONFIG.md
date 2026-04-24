@@ -25,9 +25,7 @@ The game is deployed automatically when:
 If Pages isn't automatically enabled:
 
 1. Go to: https://github.com/Malek-Debug/scrap-arena/settings/pages
-2. Select **Deploy from a branch**
-3. Choose branch: **main**
-4. Choose folder: **/ (root)**
+2. Set **Source** to **GitHub Actions**
 5. Click **Save**
 
 Pages will be live within 1-2 minutes.

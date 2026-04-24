@@ -10,14 +10,12 @@ The game files are deployed, but GitHub Pages needs to be explicitly enabled in 
 
 1. Go to: https://github.com/Malek-Debug/scrap-arena/settings/pages
 2. Under "Build and deployment":
-   - **Source**: Select "Deploy from a branch"
-   - **Branch**: Select `main`
-   - **Folder**: Select `/ (root)`
+   - **Source**: Select "GitHub Actions"
 3. Click **Save**
 4. Wait 1-2 minutes
 5. You'll see: "Your site is published at https://malek-debug.github.io/scrap-arena/"
 
-### Method 2: GitHub Actions Deployment
+### Method 2: Trigger GitHub Actions Deployment
 
 The GitHub Actions workflow is already configured to deploy to Pages. To trigger it:
 
@@ -34,14 +32,14 @@ The GitHub Actions workflow is already configured to deploy to Pages. To trigger
 ### Why This Happens
 
 GitHub Pages isn't automatically enabled just because files exist in the repository. It must be explicitly configured in:
-- **Repository Settings → Pages** (for branch-based deployment)
-- OR **GitHub Actions workflow** (which you already have)
+- **Repository Settings -> Pages** with **Source: GitHub Actions**
+- Then the workflow publishes the built `dist/` artifact
 
 ### Expected Result
 
 After enabling Pages:
 - ✅ https://malek-debug.github.io/scrap-arena/ will show your game
-- ✅ Files served from the `main` branch root
+- ✅ Files served from the built `dist/` artifact
 - ✅ Auto-updates on future git pushes
 
 ## Current Status
@@ -56,7 +54,7 @@ After enabling Pages:
 
 1. Use Method 1 (Web UI) for immediate results
 2. Settings page: https://github.com/Malek-Debug/scrap-arena/settings/pages
-3. Select: "Deploy from a branch" → main branch → / (root)
+3. Select: "GitHub Actions"
 4. Click Save
 5. Wait 1-2 minutes
 6. Game goes live!

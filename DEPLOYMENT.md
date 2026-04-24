@@ -51,9 +51,7 @@ Replace `YOUR_USERNAME` with your actual GitHub username.
 2. Click **Settings** (top-right)
 3. Scroll to **Pages** in the left sidebar
 4. Under **Build and deployment:**
-   - **Source:** Select "Deploy from a branch"
-   - **Branch:** Select `main`
-   - **Folder:** Select `/ (root)`
+   - **Source:** Select "GitHub Actions"
 5. Click **Save**
 
 GitHub will show: **"Your site is published at https://YOUR_USERNAME.github.io/scrap-arena/"**

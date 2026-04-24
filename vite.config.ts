@@ -6,7 +6,14 @@ import path from "path";
 // browser games is best-effort by definition.
 export default defineConfig(({ mode }) => {
   const isProd = mode === "production";
+  const repoName = process.env.GITHUB_REPOSITORY?.split("/")[1];
+  const autoPagesBase = repoName ? `/${repoName}/` : "/";
+  const base = isProd
+    ? process.env.VITE_BASE_PATH || (process.env.GITHUB_ACTIONS === "true" ? autoPagesBase : "/")
+    : "/";
+
   return {
+    base,
     resolve: {
       alias: {
         "@core": path.resolve(__dirname, "src/core"),
