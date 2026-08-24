@@ -76,8 +76,14 @@ export class LobbyScene extends Phaser.Scene {
     }
 
     const frame = this.add.graphics().setDepth(0);
-    frame.lineStyle(2, ACCENT, 0.35);
-    frame.strokeRect(12, 12, GAME_WIDTH - 24, GAME_HEIGHT - 24);
+    frame.lineStyle(1.5, ACCENT, 0.25);
+    frame.strokeRect(14, 14, GAME_WIDTH - 28, GAME_HEIGHT - 28);
+    const cLen = 24;
+    frame.lineStyle(2, ACCENT, 0.55);
+    frame.lineBetween(14, 14, 14 + cLen, 14); frame.lineBetween(14, 14, 14, 14 + cLen);
+    frame.lineBetween(GAME_WIDTH - 14 - cLen, 14, GAME_WIDTH - 14, 14); frame.lineBetween(GAME_WIDTH - 14, 14, GAME_WIDTH - 14, 14 + cLen);
+    frame.lineBetween(14, GAME_HEIGHT - 14, 14 + cLen, GAME_HEIGHT - 14); frame.lineBetween(14, GAME_HEIGHT - 14 - cLen, 14, GAME_HEIGHT - 14);
+    frame.lineBetween(GAME_WIDTH - 14 - cLen, GAME_HEIGHT - 14, GAME_WIDTH - 14, GAME_HEIGHT - 14); frame.lineBetween(GAME_WIDTH - 14, GAME_HEIGHT - 14 - cLen, GAME_WIDTH - 14, GAME_HEIGHT - 14);
   }
 
   private _drawHeader(cx: number): void {

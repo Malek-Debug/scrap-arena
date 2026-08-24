@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { GAME_WIDTH, GAME_HEIGHT } from "../../core";
-import { UI_FONT, UI_MONO, UI_ORBITRON, UI_OXANIUM, drawPanel } from "../../rendering/UITheme";
+import { UI_FONT, UI_MONO, UI_ORBITRON, UI_OXANIUM } from "../../rendering/UITheme";
 import { AudioManager } from "../../audio/AudioManager";
 import type { NetworkClient, ConnectionState } from "../network/NetworkClient";
 import type { ServerMessage, S2C_Error } from "../network/NetworkMessages";
@@ -209,16 +209,24 @@ export class MultiplayerMenuScene extends Phaser.Scene {
     this.joinCode = "";
 
     const cx = GAME_WIDTH / 2;
-    const cy = GAME_HEIGHT / 2 + 60;
+    const cy = GAME_HEIGHT / 2;
 
+    // Full-screen dim overlay
+    const overlay = this.add.rectangle(cx, cy, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.75).setDepth(29);
+
+    // Modal panel
     const panel = this.add.graphics().setDepth(30);
-    drawPanel(panel, cx - 200, cy - 60, 400, 120, TEAL);
+    const pw = 380, ph = 160;
+    panel.fillStyle(0x0a0518, 0.95);
+    panel.fillRoundedRect(cx - pw / 2, cy - ph / 2, pw, ph, 8);
+    panel.lineStyle(1.5, 0x00ff88, 0.6);
+    panel.strokeRoundedRect(cx - pw / 2, cy - ph / 2, pw, ph, 8);
 
-    const prompt = this.add.text(cx, cy - 35, "ENTER ROOM CODE", {
+    const prompt = this.add.text(cx, cy - 50, "ENTER ROOM CODE", {
       fontFamily: UI_MONO, fontSize: "12px", color: TEAL_HEX,
     }).setOrigin(0.5).setDepth(31);
 
-    this.joinInput = this.add.text(cx, cy, "____", {
+    this.joinInput = this.add.text(cx, cy - 10, "____", {
       fontFamily: UI_MONO, fontSize: "32px", color: "#ffffff",
       stroke: "#000000", strokeThickness: 4,
     }).setOrigin(0.5).setDepth(31);
@@ -230,10 +238,20 @@ export class MultiplayerMenuScene extends Phaser.Scene {
     confirmBtn.on("pointerout", () => confirmBtn.setColor(TEAL_HEX));
     confirmBtn.on("pointerdown", () => this._submitJoinCode());
 
+    const escHint = this.add.text(cx, cy + 65, "ESC to cancel", {
+      fontFamily: UI_MONO, fontSize: "10px", color: "#555544",
+    }).setOrigin(0.5).setDepth(31);
+
+    const cleanup = () => {
+      this.joinMode = false;
+      overlay.destroy(); panel.destroy(); prompt.destroy();
+      this.joinInput?.destroy(); confirmBtn.destroy(); escHint.destroy();
+    };
+
     this.input.keyboard!.on("keydown", (ev: KeyboardEvent) => {
       if (!this.joinMode) return;
       if (ev.key === "Enter") { this._submitJoinCode(); return; }
-      if (ev.key === "Escape") { this.joinMode = false; panel.destroy(); prompt.destroy(); this.joinInput?.destroy(); confirmBtn.destroy(); return; }
+      if (ev.key === "Escape") { cleanup(); return; }
       if (ev.key === "Backspace") { this.joinCode = this.joinCode.slice(0, -1); }
       else if (ev.key.length === 1 && this.joinCode.length < 6) { this.joinCode += ev.key.toUpperCase(); }
       const display = this.joinCode.padEnd(4, "_");
