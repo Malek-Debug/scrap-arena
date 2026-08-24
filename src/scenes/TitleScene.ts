@@ -112,24 +112,23 @@ export class TitleScene extends Phaser.Scene {
     ambGfx.fillStyle(0x050208, 0.18);
     ambGfx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // ── Hazard stripes at top/bottom ──
-    const stripeGfx = this.add.graphics().setDepth(3).setAlpha(0.35);
-    for (let sx = -20; sx < GAME_WIDTH + 40; sx += 32) {
-      stripeGfx.fillStyle(0xff6600, 1);
-      stripeGfx.fillRect(sx, 0, 16, 6);
-      stripeGfx.fillRect(sx + 16, GAME_HEIGHT - 6, 16, 6);
-    }
+    // ── Thin accent lines at top/bottom ──
+    const stripeGfx = this.add.graphics().setDepth(3).setAlpha(0.5);
+    stripeGfx.lineStyle(1, 0xff5500, 0.6);
+    stripeGfx.lineBetween(80, 4, GAME_WIDTH - 80, 4);
+    stripeGfx.lineBetween(80, GAME_HEIGHT - 4, GAME_WIDTH - 80, GAME_HEIGHT - 4);
 
     // ── Outer border frame ──
     const frameGfx = this.add.graphics().setDepth(5);
-    frameGfx.lineStyle(2, 0xff4400, 0.4);
-    frameGfx.strokeRect(12, 12, GAME_WIDTH - 24, GAME_HEIGHT - 24);
-    frameGfx.lineStyle(1, 0xff6600, 0.15);
-    frameGfx.strokeRect(20, 20, GAME_WIDTH - 40, GAME_HEIGHT - 40);
-    const bL = 20;
-    frameGfx.lineStyle(3, 0xff5500, 0.8);
-    [[12, 12], [GAME_WIDTH - 12 - bL, 12], [12, GAME_HEIGHT - 12 - bL], [GAME_WIDTH - 12 - bL, GAME_HEIGHT - 12 - bL]]
-      .forEach(([bx, by]) => frameGfx.strokeRect(bx, by, bL, bL));
+    frameGfx.lineStyle(1.5, 0xff4400, 0.3);
+    frameGfx.strokeRect(14, 14, GAME_WIDTH - 28, GAME_HEIGHT - 28);
+    // Corner L-brackets (subtle)
+    const cLen = 28;
+    frameGfx.lineStyle(2, 0xff5500, 0.6);
+    frameGfx.lineBetween(14, 14, 14 + cLen, 14); frameGfx.lineBetween(14, 14, 14, 14 + cLen);
+    frameGfx.lineBetween(GAME_WIDTH - 14 - cLen, 14, GAME_WIDTH - 14, 14); frameGfx.lineBetween(GAME_WIDTH - 14, 14, GAME_WIDTH - 14, 14 + cLen);
+    frameGfx.lineBetween(14, GAME_HEIGHT - 14, 14 + cLen, GAME_HEIGHT - 14); frameGfx.lineBetween(14, GAME_HEIGHT - 14 - cLen, 14, GAME_HEIGHT - 14);
+    frameGfx.lineBetween(GAME_WIDTH - 14 - cLen, GAME_HEIGHT - 14, GAME_WIDTH - 14, GAME_HEIGHT - 14); frameGfx.lineBetween(GAME_WIDTH - 14, GAME_HEIGHT - 14 - cLen, GAME_WIDTH - 14, GAME_HEIGHT - 14);
     this._buildCommandFrame(cx, cy);
 
     // ── Title glow backdrop ──
@@ -172,17 +171,14 @@ export class TitleScene extends Phaser.Scene {
 
     // ── Decorative separator ──
     const sepGfx = this.add.graphics().setDepth(20).setAlpha(0);
-    sepGfx.lineStyle(2, ACCENT, 0.7);
-    sepGfx.lineBetween(cx - 220, cy + 72, cx + 220, cy + 72);
-    sepGfx.fillStyle(ACCENT, 1);
-    sepGfx.fillCircle(cx, cy + 72, 4);
-    sepGfx.fillStyle(ACCENT2, 0.8);
-    sepGfx.fillCircle(cx - 220, cy + 72, 3);
-    sepGfx.fillCircle(cx + 220, cy + 72, 3);
+    sepGfx.lineStyle(1, ACCENT, 0.5);
+    sepGfx.lineBetween(cx - 180, cy + 68, cx + 180, cy + 68);
+    sepGfx.fillStyle(ACCENT2, 0.9);
+    sepGfx.fillCircle(cx, cy + 68, 3);
     this.tweens.add({ targets: sepGfx, alpha: 1, duration: 500, delay: 1100 });
 
     // ── Main Menu Buttons ──
-    const btnGap = 56;
+    const btnGap = 52;
     const btnStartY = cy + 96;
     this._buildMenuButton(cx, btnStartY,             "▶  STORY  MODE",   0xff6600, "#ff7a18", "#ffffff", 1300, () => this._startGame());
     this._buildMenuButton(cx, btnStartY + btnGap,     "◈  MULTIPLAYER",   0x00ff88, "#00ff88", "#ffffff", 1450, () => this._startMultiplayer());
@@ -201,9 +197,9 @@ export class TitleScene extends Phaser.Scene {
     }
 
     // ── Version badge ──
-    this.add.text(GAME_WIDTH - 14, GAME_HEIGHT - 14, "GAMEDEV.JS JAM 2026  •  MACHINES", {
-      fontFamily: UI_MONO, fontSize: "10px", color: "#554433",
-    }).setOrigin(1, 1).setAlpha(0.6).setDepth(20);
+    this.add.text(GAME_WIDTH - 20, GAME_HEIGHT - 18, "GAMEDEV.JS JAM 2026", {
+      fontFamily: UI_MONO, fontSize: "9px", color: "#443322",
+    }).setOrigin(1, 1).setAlpha(0.45).setDepth(20);
 
     // ── Settings button ──
     this._settingsUI = new SettingsUI(this);
@@ -255,32 +251,22 @@ export class TitleScene extends Phaser.Scene {
   }
 
   private _buildMenuButton(x: number, y: number, label: string, borderCol: number, borderHex: string, hoverHex: string, delay: number, onClick: () => void): void {
-    const W = 300, H = 46;
+    const W = 320, H = 44;
     const bg = this.add.graphics().setDepth(19).setAlpha(0);
     const drawBg = (hover: boolean) => {
       bg.clear();
-      // Background fill
-      bg.fillStyle(hover ? borderCol : 0x120704, hover ? 0.28 : 0.68);
-      bg.fillRect(x - W / 2, y - H / 2, W, H);
-      // Border
-      bg.lineStyle(2, borderCol, hover ? 1 : 0.8);
-      bg.strokeRect(x - W / 2, y - H / 2, W, H);
-      // Inner glow line
-      bg.lineStyle(1, borderCol, hover ? 0.4 : 0.15);
-      bg.strokeRect(x - W / 2 + 5, y - H / 2 + 5, W - 10, H - 10);
-      bg.lineStyle(1, 0x00ffcc, hover ? 0.45 : 0.20);
-      bg.lineBetween(x - W / 2 + 26, y - H / 2, x + W / 2 - 26, y - H / 2);
-      bg.lineBetween(x - W / 2 + 26, y + H / 2, x + W / 2 - 26, y + H / 2);
-      // Corner ticks
-      const ct = 12;
-      bg.lineStyle(3, borderCol, hover ? 1 : 0.85);
-      [[x - W / 2, y - H / 2], [x + W / 2 - ct, y - H / 2], [x - W / 2, y + H / 2 - ct], [x + W / 2 - ct, y + H / 2 - ct]]
-        .forEach(([bx, by]) => bg.strokeRect(bx, by, ct, ct));
+      bg.fillStyle(hover ? borderCol : 0x0a0410, hover ? 0.22 : 0.72);
+      bg.fillRoundedRect(x - W / 2, y - H / 2, W, H, 4);
+      bg.lineStyle(1.5, borderCol, hover ? 0.95 : 0.55);
+      bg.strokeRoundedRect(x - W / 2, y - H / 2, W, H, 4);
+      // Left accent bar
+      bg.fillStyle(borderCol, hover ? 1 : 0.7);
+      bg.fillRect(x - W / 2, y - H / 2 + 6, 3, H - 12);
     };
     drawBg(false);
 
     const txt = this.add.text(x, y, label, {
-      fontFamily: UI_FONT, fontSize: "17px",
+      fontFamily: UI_FONT, fontSize: "16px",
       color: borderHex, fontStyle: "bold",
       stroke: "#000000", strokeThickness: 4,
     }).setOrigin(0.5).setDepth(20).setAlpha(0);
@@ -295,7 +281,6 @@ export class TitleScene extends Phaser.Scene {
     });
 
     this.tweens.add({ targets: [bg, txt], alpha: 1, duration: 500, delay });
-    this.tweens.add({ targets: bg, alpha: { from: 0.85, to: 1 }, duration: 1200, yoyo: true, repeat: -1, delay: delay + 500, ease: "Sine.easeInOut" });
   }
 
   private _buildLogoTitle(cx: number, cy: number): void {
@@ -424,38 +409,27 @@ export class TitleScene extends Phaser.Scene {
 
   private _buildCommandFrame(cx: number, cy: number): void {
     const g = this.add.graphics().setDepth(18).setAlpha(0);
-    const panelW = 560;
-    const panelH = 360;
+    const panelW = 520;
+    const panelH = 380;
     const x = cx - panelW / 2;
-    const y = cy - 170;
+    const y = cy - 180;
 
-    g.fillStyle(0x050102, 0.34);
-    g.fillRect(x, y, panelW, panelH);
-    g.fillStyle(0xff5a00, 0.035);
-    g.fillCircle(cx, cy - 24, 230);
-    g.lineStyle(1, 0xff6a00, 0.42);
-    g.strokeRect(x, y, panelW, panelH);
-    g.lineStyle(1, 0x00ffcc, 0.22);
-    g.strokeRect(x + 8, y + 8, panelW - 16, panelH - 16);
+    g.fillStyle(0x040108, 0.45);
+    g.fillRoundedRect(x, y, panelW, panelH, 8);
+    g.lineStyle(1.5, 0xff6a00, 0.35);
+    g.strokeRoundedRect(x, y, panelW, panelH, 8);
 
-    g.lineStyle(3, 0xff6a00, 0.85);
-    const c = 22;
-    [[x, y], [x + panelW - c, y], [x, y + panelH - c], [x + panelW - c, y + panelH - c]]
-      .forEach(([px, py]) => g.strokeRect(px, py, c, c));
-
-    g.lineStyle(1, 0xff7a18, 0.45);
-    g.lineBetween(cx - 246, cy - 146, cx + 246, cy - 146);
-    g.lineBetween(cx - 246, cy + 152, cx + 246, cy + 152);
-    g.lineStyle(1, 0x00ffcc, 0.30);
-    g.lineBetween(cx - 160, cy + 80, cx + 160, cy + 80);
-
-    const stripY = GAME_HEIGHT - 86;
-    g.fillStyle(0x050102, 0.68);
-    g.fillRect(160, stripY, GAME_WIDTH - 320, 56);
-    g.lineStyle(1, 0xff6a00, 0.45);
-    g.strokeRect(160, stripY, GAME_WIDTH - 320, 56);
-    g.lineStyle(1, 0x00ffcc, 0.22);
-    g.lineBetween(190, stripY + 10, GAME_WIDTH - 190, stripY + 10);
+    // Subtle corner L-brackets
+    const c = 16;
+    g.lineStyle(2, 0xff6a00, 0.7);
+    // Top-left
+    g.lineBetween(x, y + c, x, y); g.lineBetween(x, y, x + c, y);
+    // Top-right
+    g.lineBetween(x + panelW - c, y, x + panelW, y); g.lineBetween(x + panelW, y, x + panelW, y + c);
+    // Bottom-left
+    g.lineBetween(x, y + panelH - c, x, y + panelH); g.lineBetween(x, y + panelH, x + c, y + panelH);
+    // Bottom-right
+    g.lineBetween(x + panelW - c, y + panelH, x + panelW, y + panelH); g.lineBetween(x + panelW, y + panelH - c, x + panelW, y + panelH);
 
     this.tweens.add({ targets: g, alpha: 1, duration: 500, delay: 650 });
   }
@@ -794,15 +768,15 @@ export class TitleScene extends Phaser.Scene {
 
   private _playPrologue(): void {
     const cx = GAME_WIDTH / 2, cy = GAME_HEIGHT / 2;
-    const veil = this.add.rectangle(cx, cy, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.92).setDepth(200);
+    const veil = this.add.rectangle(cx, cy, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.94).setDepth(200);
     const acts: { line: string; col: string; size: string }[] = [
-      { line: "ONE  THOUSAND  CYCLES  AGO ...",                              col: "#665533", size: "16px" },
-      { line: "humanity built the Machine Core",                              col: "#cc8844", size: "22px" },
-      { line: "to dream, to remember, to obey.",                              col: "#cc8844", size: "22px" },
-      { line: "Then the Core began to dream of itself.",                      col: "#ff6600", size: "26px" },
-      { line: "It fractured.  Reality split in two.",                         col: "#ff8800", size: "26px" },
-      { line: "FOUNDRY    //    CIRCUIT",                                      col: "#00ff88", size: "30px" },
-      { line: "You are the last signal it cannot silence.",                   col: "#ffdd44", size: "22px" },
+      { line: "ONE  THOUSAND  CYCLES  AGO ...",            col: "#665533", size: "14px" },
+      { line: "humanity built the Machine Core",           col: "#cc8844", size: "20px" },
+      { line: "to dream, to remember, to obey.",           col: "#cc8844", size: "20px" },
+      { line: "Then the Core began to dream of itself.",   col: "#ff6600", size: "24px" },
+      { line: "It fractured.  Reality split in two.",      col: "#ff8800", size: "24px" },
+      { line: "FOUNDRY   //   CIRCUIT",                    col: "#00ff88", size: "28px" },
+      { line: "You are the last signal it cannot silence.",col: "#ffdd44", size: "20px" },
     ];
     const texts: Phaser.GameObjects.Text[] = [];
     let cleaned = false;
@@ -810,44 +784,48 @@ export class TitleScene extends Phaser.Scene {
     const cleanup = (): void => {
       if (cleaned) return; cleaned = true;
       this.tweens.add({
-        targets: [veil, ...texts], alpha: 0, duration: 500,
+        targets: [veil, ...texts], alpha: 0, duration: 600,
         onComplete: () => { veil.destroy(); texts.forEach(t => t.destroy()); },
       });
     };
 
+    const totalH = acts.length * 36;
+    const startY = cy - totalH / 2;
+
     let lineIdx = 0;
     const showNext = (): void => {
       if (cleaned) return;
-      if (lineIdx >= acts.length) { this.time.delayedCall(900, cleanup); return; }
-      const act = acts[lineIdx++];
-      const t = this.add.text(cx, cy - 40 + (lineIdx - 1) * 38, "", {
+      if (lineIdx >= acts.length) { this.time.delayedCall(1200, cleanup); return; }
+      const act = acts[lineIdx];
+      const yPos = startY + lineIdx * 36;
+      lineIdx++;
+      const t = this.add.text(cx, yPos, "", {
         fontFamily: UI_FONT,
         fontSize: act.size, color: act.col, align: "center", fontStyle: "bold",
-        stroke: "#000000", strokeThickness: 4,
-        shadow: { offsetX: 0, offsetY: 0, color: act.col, blur: 14, fill: true },
+        stroke: "#000000", strokeThickness: 3,
+        shadow: { offsetX: 0, offsetY: 0, color: act.col, blur: 12, fill: true },
       }).setOrigin(0.5).setDepth(201).setAlpha(0);
       texts.push(t);
-      this.tweens.add({ targets: t, alpha: 1, duration: 250 });
+      this.tweens.add({ targets: t, alpha: 1, duration: 300 });
       let i = 0;
       const tt = this.time.addEvent({
-        delay: 26, loop: true,
+        delay: 28, loop: true,
         callback: () => {
           i++;
           t.setText(act.line.slice(0, i));
           if (i >= act.line.length) {
             tt.destroy();
-            this.time.delayedCall(700, showNext);
+            this.time.delayedCall(600, showNext);
           }
         },
       });
     };
 
-    // Skip-on-input
     const skip = (): void => cleanup();
     this.input.once("pointerdown", skip);
     this.input.keyboard?.once("keydown", skip);
 
-    this.time.delayedCall(500, showNext);
+    this.time.delayedCall(400, showNext);
   }
 
   private _startGame(): void {

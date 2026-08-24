@@ -111,11 +111,7 @@ export class IntroScene extends Phaser.Scene {
     this._phase = "boot";
     this._cam   = { x: 60, y: -30, zoom: 2.6 };   // parked on reactor close-up
 
-    const t = this._txt(CX, CY, "TNT  STUDIO", UI_ORBITRON, "18px", "#554433").setAlpha(0).setDepth(30);
-    this.tweens.add({ targets: t, alpha: 1, duration: 550 });
-    this.time.delayedCall(1900, () =>
-      this.tweens.add({ targets: t, alpha: 0, duration: 400,
-        onComplete: () => { t.destroy(); this._showTitleCard(); } }));
+    this.time.delayedCall(200, () => this._showTitleCard());
   }
 
   private _showTitleCard(): void {
