@@ -154,7 +154,7 @@ export class MultiplayerMenuScene extends Phaser.Scene {
   }
 
   private _drawFooter(cx: number): void {
-    this.add.text(cx, GAME_HEIGHT - 28, "GAMEDEV.JS JAM 2026", {
+    this.add.text(cx, GAME_HEIGHT - 28, "SCRAP ARENA  •  THE FRACTURE", {
       fontFamily: UI_MONO, fontSize: "9px", color: "#332211",
     }).setOrigin(0.5).setDepth(10).setAlpha(0.4);
   }

@@ -197,7 +197,7 @@ export class TitleScene extends Phaser.Scene {
     }
 
     // ── Version badge ──
-    this.add.text(GAME_WIDTH - 20, GAME_HEIGHT - 18, "GAMEDEV.JS JAM 2026", {
+    this.add.text(GAME_WIDTH - 20, GAME_HEIGHT - 18, "SCRAP ARENA  •  THE FRACTURE", {
       fontFamily: UI_MONO, fontSize: "9px", color: "#443322",
     }).setOrigin(1, 1).setAlpha(0.45).setDepth(20);
 

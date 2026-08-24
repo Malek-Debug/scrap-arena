@@ -198,7 +198,7 @@ export class MatchResultsScene extends Phaser.Scene {
     const statsPanel = this.add.graphics().setDepth(9);
     drawPanel(statsPanel, cx - 200, statsY, 400, 50, 0xff6600);
 
-    this.add.text(cx, statsY + 25, `TOTAL ELIMINATIONS: ${totalKills}  •  FREE FOR ALL  •  SCRAP YARD`, {
+    this.add.text(cx, statsY + 25, `TOTAL ELIMINATIONS: ${totalKills}  •  DEATHMATCH  •  THE FRACTURE`, {
       fontFamily: UI_MONO, fontSize: "11px", color: "#888877",
     }).setOrigin(0.5).setDepth(10);
   }

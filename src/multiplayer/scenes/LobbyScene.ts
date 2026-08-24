@@ -169,11 +169,11 @@ export class LobbyScene extends Phaser.Scene {
     const panel = this.add.graphics().setDepth(9);
     drawPanel(panel, cx - 200, infoY, 400, 60, ACCENT);
 
-    this.add.text(cx, infoY + 18, "FREE FOR ALL", {
+    this.add.text(cx, infoY + 18, "DEATHMATCH", {
       fontFamily: UI_OXANIUM, fontSize: "16px", color: "#ff9944", fontStyle: "bold",
     }).setOrigin(0.5).setDepth(10);
 
-    this.add.text(cx, infoY + 40, "SCRAP YARD ARENA  •  FIRST TO 20 KILLS", {
+    this.add.text(cx, infoY + 40, "THE FRACTURE  •  FIRST TO 20 KILLS", {
       fontFamily: UI_MONO, fontSize: "10px", color: "#777766",
     }).setOrigin(0.5).setDepth(10);
   }
