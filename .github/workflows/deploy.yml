@@ -33,7 +33,7 @@ jobs:
       - name: Build production
         run: npm run build
         env:
-          VITE_SERVER_URL: wss://scrap-arena-server.onrender.com
+          VITE_SERVER_URL: wss://scrap-arena-server-production.up.railway.app
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
