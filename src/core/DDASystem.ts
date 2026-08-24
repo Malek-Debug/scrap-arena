@@ -86,10 +86,11 @@ export class DDASystem {
       label = "NORMAL";
     }
 
-    // Smooth interpolation (lerp 30% toward target each window)
-    this.enemyHpMult = lerp(this.enemyHpMult, target, 0.3);
-    this.speedMult = lerp(this.speedMult, Math.sqrt(target), 0.3); // speed scales slower
-    this.countMult = lerp(this.countMult, 0.6 + target * 0.4, 0.3); // count scales even less
+    // Smooth interpolation — 50% toward target each window (faster response to struggling)
+    const lerpAmt = target < this.enemyHpMult ? 0.55 : 0.30;
+    this.enemyHpMult = lerp(this.enemyHpMult, target, lerpAmt);
+    this.speedMult = lerp(this.speedMult, Math.sqrt(target), lerpAmt);
+    this.countMult = lerp(this.countMult, 0.6 + target * 0.4, lerpAmt);
     
     if (label !== this.difficultyLabel) {
       const oldTarget = this.difficultyLabel === "INTENSE" ? 1.45 : this.difficultyLabel === "HARD" ? 1.2 : this.difficultyLabel === "EASY" ? 0.65 : this.difficultyLabel === "NORMAL" ? (this.enemyHpMult < 1 ? 0.85 : 1.0) : 1.0;

@@ -25,6 +25,8 @@ export class FractureFX {
   private lastDimensionHalf = false;
 
   private recentKills: number[] = [];
+  // Cooldown between kill-streak camera flashes — prevents white-out at RAMPAGE pace
+  private _killFlashCooldown = 0;
 
   private zoomTween: Phaser.Tweens.Tween | null = null;
 
@@ -70,6 +72,9 @@ export class FractureFX {
     // --- Prune old kills ---
     this.recentKills = this.recentKills.filter((t) => time - t < KILL_STREAK_WINDOW);
 
+    if (this._killFlashCooldown > 0) this._killFlashCooldown -= deltaMs;
+    if (this._zoomPunchCooldown > 0) this._zoomPunchCooldown -= deltaMs;
+
     // Vignette and scanlines are baked — no per-frame redraw needed
     // No camera rotation — it makes aiming very difficult
 
@@ -84,24 +89,29 @@ export class FractureFX {
       this.blueOverlay.setVisible(false);
     }
 
-    // --- Dimension color shift ---
+    // --- Dimension color shift — skip during intense combat so it doesn't
+    // fire into an already saturated flash budget (boss/reactor state).
     this.dimensionPhase = (time % DIMENSION_PERIOD) / DIMENSION_PERIOD;
     const inSecondHalf = this.dimensionPhase >= 0.5;
-    if (inSecondHalf && !this.lastDimensionHalf) {
+    if (inSecondHalf && !this.lastDimensionHalf && this.intensity <= 0.5) {
       cam.flash(200, 160, 32, 240, false, undefined, this);
     }
     this.lastDimensionHalf = inSecondHalf;
   }
 
-  onKill(x: number, y: number): void {
+  private _zoomPunchCooldown = 0;
+
+  onKill(_x: number, _y: number): void {
     this.intensity = Phaser.Math.Clamp(this.intensity + 0.25, 0, 1);
     this.recentKills.push(this.scene.time.now);
 
-    // Zoom punch
-    this.applyZoomPunch(1.03, 180);
+    if (this._zoomPunchCooldown <= 0) {
+      this.applyZoomPunch(1.03, 180);
+      this._zoomPunchCooldown = 150;
+    }
 
-    // Kill streak flash
-    if (this.recentKills.length >= KILL_STREAK_THRESHOLD) {
+    if (this.recentKills.length >= KILL_STREAK_THRESHOLD && this._killFlashCooldown <= 0) {
+      this._killFlashCooldown = 800;
       this.scene.cameras.main.flash(80, 255, 255, 255);
     }
   }
@@ -110,7 +120,7 @@ export class FractureFX {
     this.intensity = Phaser.Math.Clamp(this.intensity + 0.1, 0, 1);
   }
 
-  onWaveStart(wave: number): void {
+  onWaveStart(_wave: number): void {
     const cam = this.scene.cameras.main;
 
     // Subtle green flash

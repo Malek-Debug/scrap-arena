@@ -11,6 +11,7 @@ import type { PowerUpSystem } from "../core/PowerUpSystem";
 import type { WorldManager } from "../core/WorldManager";
 import type { DDASystem } from "../core/DDASystem";
 import type { ArenaHazards } from "../core/ArenaHazards";
+import type { SpatialGrid } from "../core/SpatialGrid";
 import type { BossAgent } from "../agents/BossAgent";
 import type { EnemyAgent } from "../agents/EnemyAgent";
 import type { GuardAgent } from "../agents/GuardAgent";
@@ -19,9 +20,9 @@ import type { TurretAgent } from "../agents/TurretAgent";
 import type { SawbladeAgent } from "../agents/SawbladeAgent";
 import type { WelderAgent } from "../agents/WelderAgent";
 
-import type { AnyAgent } from "../core";
-
-export type { AnyAgent };
+export type AnyAgent =
+  | EnemyAgent | GuardAgent | CollectorAgent
+  | TurretAgent | SawbladeAgent | WelderAgent;
 
 export interface GameContext {
   scene: Phaser.Scene;
@@ -66,4 +67,8 @@ export interface GameContext {
   deathQueue: AnyAgent[];
   reactorHp: number;
   reactorMaxHp: number;
+  spatialGrid: SpatialGrid;
+  agentPositions: Float32Array;
+  playerBaseScale: number;
+  phaseSurgeTimer: number;
 }

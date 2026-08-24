@@ -16,6 +16,7 @@ export class DashSkill extends BaseSkill {
   private readonly trailCount: number;
   private readonly invulnDurationMs: number;
   private _invulnUntil = 0;
+  forceMult = 1.0;
 
   constructor(force = 600, cooldownMs = 1200, trailCount = 4, invulnDurationMs = 180) {
     super(1);
@@ -41,9 +42,10 @@ export class DashSkill extends BaseSkill {
     ];
 
     const body = sprite.body as Phaser.Physics.Arcade.Body;
+    const f = this.force * this.forceMult;
     body.setVelocity(
-      Math.cos(angle) * this.force,
-      Math.sin(angle) * this.force,
+      Math.cos(angle) * f,
+      Math.sin(angle) * f,
     );
 
     this._invulnUntil = performance.now() + this.invulnDurationMs;
@@ -104,6 +106,6 @@ export class DashSkill extends BaseSkill {
       });
     }
 
-    Juice.screenShake(scene, 0.004, 90);
+    Juice.screenShake(scene, 0.007, 100);
   }
 }

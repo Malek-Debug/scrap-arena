@@ -6,7 +6,7 @@ export { createGameConfig, GAME_WIDTH, GAME_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT, C
 export { WaveManager } from "./WaveManager";
 export type { WaveConfig, WaveManagerConfig, WaveEvent, WaveEventType } from "./WaveManager";
 export { ScrapManager } from "./ScrapManager";
-export { UpgradeSystem } from "./UpgradeSystem";
+export { UpgradeSystem, DEFAULT_STATS } from "./UpgradeSystem";
 export type { PlayerStats, UpgradeOption } from "./UpgradeSystem";
 export { WorldManager, WorldType, WORLD_PALETTES } from "./WorldManager";
 export { ComboSystem } from "./ComboSystem";
@@ -14,7 +14,7 @@ export { ArenaHazards } from "./ArenaHazards";
 export { DDASystem } from "./DDASystem";
 export { AbilitySystem } from "./AbilitySystem";
 export type { Ability } from "./AbilitySystem";
-export { PowerUpSystem } from "./PowerUpSystem";
+export { PowerUpSystem, POWER_UP_DURATIONS } from "./PowerUpSystem";
 export type { PowerUpType } from "./PowerUpSystem";
 export { MissionSystem } from "./MissionSystem";
 export type { Mission, MissionReward, MissionType } from "./MissionSystem";
@@ -23,7 +23,5 @@ export type { ObstacleKind, ObstacleData, RoomPhysicsZone } from "./MapObstacles
 export { StorySystem } from "./StorySystem";
 export type { StoryPhase, RoomTrigger, NarrativePhase } from "./StorySystem";
 export { GameState, GameStateMachine } from "./GameState";
-export { EntityManager } from "./EntityManager";
-export type { AnyAgent } from "./EntityManager";
 export { SecureStore } from "./SecureStore";
 export { IntegrityGuard } from "./IntegrityGuard";

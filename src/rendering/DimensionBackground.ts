@@ -40,7 +40,6 @@ export class DimensionBackground {
   // Current world theme
   private currentWorld: WorldType = WorldType.FOUNDRY;
   private gridPrimary = 0xff6600;
-  private gridSecondary = 0xff4400;
   private borderFrom = { r: 0xff, g: 0x66, b: 0x00 };
   private borderTo = { r: 0xff, g: 0x44, b: 0x00 };
 
@@ -52,12 +51,13 @@ export class DimensionBackground {
   private particleGfx!: Phaser.GameObjects.Graphics;
   private particles: VoidParticle[] = [];
 
-  // Layer 1.5: Static floor pattern
+  // Layer 1.5: Static floor pattern — drawn once on world switch, not per frame.
   private floorGfx!: Phaser.GameObjects.Graphics;
 
   // Layer 2
   private gridGfx!: Phaser.GameObjects.Graphics;
   private gridTime = 0;
+  private gridRedrawAccum = 0;
 
   // Layer 3
   private shardGfx!: Phaser.GameObjects.Graphics;
@@ -76,6 +76,11 @@ export class DimensionBackground {
   private _enemyCount = 0;
   private _breachCount = 0;
   private _pulseTime = 0;
+  private _reactivityFrame = 0;
+
+  // Layer 7: World-switch burst (transient)
+  private _switchBurstGfx!: Phaser.GameObjects.Graphics;
+  private _switchBurstTime = -1;  // -1 = inactive
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -88,6 +93,7 @@ export class DimensionBackground {
     this.initCracks();
     this.initBorder();
     this.combatGfx = scene.add.graphics().setDepth(2).setScrollFactor(0);
+    this._switchBurstGfx = scene.add.graphics().setDepth(10).setScrollFactor(0);
 
     // Apply initial theme
     this.setWorld(WorldType.FOUNDRY);
@@ -120,9 +126,8 @@ export class DimensionBackground {
       this.particles[i].color = pal.particles[i % pal.particles.length];
     }
 
-    // Grid colors
+    // Grid color
     this.gridPrimary = pal.gridPrimary;
-    this.gridSecondary = pal.gridSecondary;
 
     // Shard colors
     for (let i = 0; i < this.shards.length; i++) {
@@ -132,6 +137,11 @@ export class DimensionBackground {
     // Border
     this.borderFrom = { ...pal.borderFrom };
     this.borderTo = { ...pal.borderTo };
+  }
+
+  /** Call immediately after a world switch to play a 600ms radial burst at screen centre. */
+  triggerSwitchBurst(): void {
+    this._switchBurstTime = 0;
   }
 
   /* ── Layer 0: Deep Void ─────────────────────────── */
@@ -323,13 +333,13 @@ export class DimensionBackground {
     }
 
     // ── Steel plate beams (main grid) ─────────────────────────
-    this.floorGfx.lineStyle(2, 0xaa5520, 0.38);
+    this.floorGfx.lineStyle(2, 0xaa5520, 0.14);
     for (let y = 0; y <= WORLD_HEIGHT; y += 120) {
       this.floorGfx.beginPath();
       this.floorGfx.moveTo(0, y); this.floorGfx.lineTo(WORLD_WIDTH, y);
       this.floorGfx.strokePath();
     }
-    this.floorGfx.lineStyle(2, 0xaa5520, 0.32);
+    this.floorGfx.lineStyle(2, 0xaa5520, 0.14);
     for (let x = 0; x <= WORLD_WIDTH; x += 120) {
       this.floorGfx.beginPath();
       this.floorGfx.moveTo(x, 0); this.floorGfx.lineTo(x, WORLD_HEIGHT);
@@ -343,6 +353,43 @@ export class DimensionBackground {
         this.floorGfx.fillCircle(x, y, 4);
         this.floorGfx.fillStyle(0xddaa55, 0.40);
         this.floorGfx.fillCircle(x - 1, y - 1, 1.5);
+      }
+    }
+
+    // ── FOUNDRY CENTER IDENTITY: large amber heat-circle stamp per room ──
+    // Covers the center of each room so it's recognizable even with HUD hidden.
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 3; col++) {
+        const mx = col * 1280 + 640;
+        const my = row * 720 + 360;
+        // Outer amber glow halo
+        this.floorGfx.fillStyle(0xff6600, 0.04);
+        this.floorGfx.fillCircle(mx, my, 200);
+        this.floorGfx.fillStyle(0xcc5500, 0.06);
+        this.floorGfx.fillCircle(mx, my, 130);
+        // Industrial diamond / target marker
+        this.floorGfx.lineStyle(2, 0x884422, 0.38);
+        this.floorGfx.strokeRect(mx - 80, my - 80, 160, 160);
+        this.floorGfx.lineStyle(1, 0xcc6633, 0.28);
+        // Rotated diamond outline
+        this.floorGfx.beginPath();
+        this.floorGfx.moveTo(mx,        my - 80);
+        this.floorGfx.lineTo(mx + 80,   my);
+        this.floorGfx.lineTo(mx,        my + 80);
+        this.floorGfx.lineTo(mx - 80,   my);
+        this.floorGfx.closePath();
+        this.floorGfx.strokePath();
+        // Center amber bolt
+        this.floorGfx.fillStyle(0xaa5520, 0.55);
+        this.floorGfx.fillCircle(mx, my, 18);
+        this.floorGfx.fillStyle(0xff8844, 0.35);
+        this.floorGfx.fillCircle(mx, my, 10);
+        this.floorGfx.fillStyle(0xffcc66, 0.30);
+        this.floorGfx.fillCircle(mx - 3, my - 3, 4);
+        // Cross scoring lines
+        this.floorGfx.lineStyle(1, 0x773322, 0.30);
+        this.floorGfx.lineBetween(mx - 60, my, mx + 60, my);
+        this.floorGfx.lineBetween(mx, my - 60, mx, my + 60);
       }
     }
 
@@ -495,7 +542,7 @@ export class DimensionBackground {
       for (let row = -1; ; row++) {
         const hcy = row * rowSpacing + colOffset;
         if (hcy > WORLD_HEIGHT + r) break;
-        this.floorGfx.lineStyle(1, 0xaa44ff, 0.28);
+        this.floorGfx.lineStyle(1, 0xaa44ff, 0.12);
         this.floorGfx.beginPath();
         for (let i = 0; i <= 6; i++) {
           const angle = (i * Math.PI) / 3;
@@ -561,6 +608,69 @@ export class DimensionBackground {
       this.floorGfx.lineStyle(1, 0x5511aa, 0.50);
       this.floorGfx.strokeRect(chip.x, chip.y, chip.w, chip.h);
     }
+
+    // ── CIRCUIT CENTER IDENTITY: data-node cluster stamp per room ──
+    // Each room center has a distinct hexagonal ring + cross-trace marker
+    // so the CIRCUIT dimension is instantly recognizable even with HUD hidden.
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 3; col++) {
+        const mx = col * 1280 + 640;
+        const my = row * 720 + 360;
+        // Outer violet glow halo
+        this.floorGfx.fillStyle(0x6600ff, 0.03);
+        this.floorGfx.fillCircle(mx, my, 200);
+        this.floorGfx.fillStyle(0x4400cc, 0.05);
+        this.floorGfx.fillCircle(mx, my, 130);
+        // Hexagonal center node (6-sided)
+        const hexR = 60;
+        this.floorGfx.lineStyle(1, 0x7733cc, 0.36);
+        this.floorGfx.beginPath();
+        for (let h = 0; h < 6; h++) {
+          const ha = (h * Math.PI) / 3 - Math.PI / 6;
+          const hx = mx + Math.cos(ha) * hexR;
+          const hy = my + Math.sin(ha) * hexR;
+          if (h === 0) this.floorGfx.moveTo(hx, hy);
+          else this.floorGfx.lineTo(hx, hy);
+        }
+        this.floorGfx.closePath();
+        this.floorGfx.strokePath();
+        // Inner smaller hex
+        const hexR2 = 36;
+        this.floorGfx.lineStyle(1, 0xaa44ff, 0.24);
+        this.floorGfx.beginPath();
+        for (let h = 0; h < 6; h++) {
+          const ha = (h * Math.PI) / 3 - Math.PI / 6;
+          const hx = mx + Math.cos(ha) * hexR2;
+          const hy = my + Math.sin(ha) * hexR2;
+          if (h === 0) this.floorGfx.moveTo(hx, hy);
+          else this.floorGfx.lineTo(hx, hy);
+        }
+        this.floorGfx.closePath();
+        this.floorGfx.strokePath();
+        // Orthogonal PCB trace arms to hex corners
+        this.floorGfx.lineStyle(1, 0x6611cc, 0.28);
+        this.floorGfx.lineBetween(mx - 80, my, mx - hexR, my);
+        this.floorGfx.lineBetween(mx + hexR, my, mx + 80, my);
+        this.floorGfx.lineBetween(mx, my - 80, mx, my - hexR);
+        this.floorGfx.lineBetween(mx, my + hexR, mx, my + 80);
+        // Central data node
+        this.floorGfx.fillStyle(0x220044, 0.85);
+        this.floorGfx.fillCircle(mx, my, 12);
+        this.floorGfx.lineStyle(1, 0x8833ff, 0.60);
+        this.floorGfx.strokeCircle(mx, my, 12);
+        this.floorGfx.fillStyle(0x6622cc, 0.55);
+        this.floorGfx.fillCircle(mx, my, 7);
+        this.floorGfx.fillStyle(0xcc88ff, 0.25);
+        this.floorGfx.fillCircle(mx - 2, my - 2, 3);
+        // Solder pads at trace ends
+        this.floorGfx.fillStyle(0x441188, 0.60);
+        for (const [px, py] of [[mx - 80, my], [mx + 80, my], [mx, my - 80], [mx, my + 80]] as [number, number][]) {
+          this.floorGfx.fillRect(px - 4, py - 4, 8, 8);
+          this.floorGfx.lineStyle(1, 0x7733bb, 0.45);
+          this.floorGfx.strokeRect(px - 4, py - 4, 8, 8);
+        }
+      }
+    }
   }
 
   /* ── Layer 2: Energy Grid ───────────────────────── */
@@ -622,45 +732,121 @@ export class DimensionBackground {
     this.updateCracks(dt);
     this.updateBorder(dt, intensity);
     this.updateCombatReactivity(deltaMs);
+    this.updateSwitchBurst(deltaMs);
   }
 
   private updateCombatReactivity(deltaMs: number): void {
     this._pulseTime += deltaMs;
+    // Throttle: only redraw every 3rd frame
+    if (++this._reactivityFrame % 3 !== 0) return;
     this.combatGfx.clear();
 
     const enemies = Math.min(this._enemyCount, 20);
-    if (enemies === 0 && this._breachCount === 0) return;
-
     const t = this._pulseTime * 0.001;
     const combatIntensity = enemies / 20;
 
     if (this.currentWorld === WorldType.FOUNDRY) {
-      // Industrial copper glow at bottom
-      const glowH = 40 + combatIntensity * 50;
-      const pulse = 0.06 + 0.08 * combatIntensity * Math.abs(Math.sin(t * 2));
-      this.combatGfx.fillStyle(0xcc7733, pulse);
-      this.combatGfx.fillRect(0, GAME_HEIGHT - glowH, GAME_WIDTH, glowH);
+      // ── MACHINE CORE: Industrial amber heat atmosphere ──────────────────────
+
+      // Always-on forge glow on left+right edges — slightly stronger than before
+      const baseEdge = 0.08 + 0.05 * Math.abs(Math.sin(t * 0.6));
+      this.combatGfx.fillStyle(0xcc5500, baseEdge);
+      this.combatGfx.fillRect(0, 0, 18, GAME_HEIGHT);
+      this.combatGfx.fillRect(GAME_WIDTH - 18, 0, 18, GAME_HEIGHT);
+
+      // Floor amber heat band — always visible, intensifies with enemies
+      const floorH = 28 + combatIntensity * 60;
+      const floorPulse = 0.10 + 0.12 * combatIntensity * Math.abs(Math.sin(t * 2.2));
+      this.combatGfx.fillStyle(0xdd6600, floorPulse);
+      this.combatGfx.fillRect(0, GAME_HEIGHT - floorH, GAME_WIDTH, floorH);
+
+      // Ambient heat shimmer — faint top bar (furnace bleed)
+      const topPulse = 0.03 + 0.04 * Math.abs(Math.sin(t * 0.9 + 1.2));
+      this.combatGfx.fillStyle(0xff4400, topPulse);
+      this.combatGfx.fillRect(0, 0, GAME_WIDTH, 14);
+
+      // Breach flicker — red sparks from edges
+      if (this._breachCount > 0) {
+        const flickAlpha = 0.04 * this._breachCount * Math.abs(Math.sin(t * 7));
+        this.combatGfx.fillStyle(0xff2200, flickAlpha);
+        this.combatGfx.fillRect(0, 0, 8, GAME_HEIGHT);
+        this.combatGfx.fillRect(GAME_WIDTH - 8, 0, 8, GAME_HEIGHT);
+      }
+
     } else {
-      // Void sector — violet data pulse lines
-      const lineCount = 3 + Math.floor(combatIntensity * 4);
-      const lineSpeed = 1 + combatIntensity * 1.5;
+      // ── VOID SECTOR: Digital cyan/violet data stream atmosphere ────────────
+
+      // Always-on CIRCUIT cyan+violet edge glow — stronger identity
+      const edgeBase = 0.07 + 0.06 * Math.abs(Math.sin(t * 0.8));
+      this.combatGfx.fillStyle(0x2200aa, edgeBase);
+      this.combatGfx.fillRect(0, 0, 20, GAME_HEIGHT);
+      this.combatGfx.fillRect(GAME_WIDTH - 20, 0, 20, GAME_HEIGHT);
+      this.combatGfx.fillRect(0, 0, GAME_WIDTH, 16);
+      this.combatGfx.fillRect(0, GAME_HEIGHT - 16, GAME_WIDTH, 16);
+
+      // Cyan inner accent lines
+      const innerEdge = 0.04 + 0.03 * Math.abs(Math.sin(t * 1.1));
+      this.combatGfx.fillStyle(0x00aaff, innerEdge);
+      this.combatGfx.fillRect(20, 0, 4, GAME_HEIGHT);
+      this.combatGfx.fillRect(GAME_WIDTH - 24, 0, 4, GAME_HEIGHT);
+
+      // Scan-line data pulse (always present, count scales with combat)
+      const lineCount = 1 + Math.floor(combatIntensity * 3);
+      const lineSpeed = 0.8 + combatIntensity * 1.8;
       for (let i = 0; i < lineCount; i++) {
-        const yOffset = ((t * lineSpeed * 60 + (i / lineCount) * GAME_HEIGHT) % GAME_HEIGHT);
-        const y = GAME_HEIGHT - yOffset;
-        const alpha = 0.04 + 0.08 * combatIntensity;
-        this.combatGfx.lineStyle(1, 0xaa44ff, alpha);
+        const yOffset = ((t * lineSpeed * 60 + (i / (lineCount + 1)) * GAME_HEIGHT) % GAME_HEIGHT);
+        const scanY = GAME_HEIGHT - yOffset;
+        const alpha = 0.025 + 0.035 * combatIntensity;
+        this.combatGfx.lineStyle(1, 0x00ddff, alpha);
         this.combatGfx.beginPath();
-        this.combatGfx.moveTo(0, y);
-        this.combatGfx.lineTo(GAME_WIDTH, y);
+        this.combatGfx.moveTo(0, scanY);
+        this.combatGfx.lineTo(GAME_WIDTH, scanY);
         this.combatGfx.strokePath();
       }
-      // Breach flicker
+
+      // Breach flicker — purple edge surge
       if (this._breachCount > 0) {
-        const flashAlpha = 0.03 * this._breachCount * Math.abs(Math.sin(t * 6));
-        this.combatGfx.fillStyle(0xcc44ff, flashAlpha);
-        this.combatGfx.fillRect(0, 0, 6, GAME_HEIGHT);
-        this.combatGfx.fillRect(GAME_WIDTH - 6, 0, 6, GAME_HEIGHT);
+        const flashAlpha = 0.05 * this._breachCount * Math.abs(Math.sin(t * 6));
+        this.combatGfx.fillStyle(0xcc00ff, flashAlpha);
+        this.combatGfx.fillRect(0, 0, 10, GAME_HEIGHT);
+        this.combatGfx.fillRect(GAME_WIDTH - 10, 0, 10, GAME_HEIGHT);
       }
+    }
+  }
+
+  /** Radial burst ring drawn at camera centre after a world switch. */
+  private updateSwitchBurst(deltaMs: number): void {
+    if (this._switchBurstTime < 0) return;
+    this._switchBurstTime += deltaMs;
+    const duration = 600;
+    const progress = this._switchBurstTime / duration;
+    if (progress >= 1) {
+      this._switchBurstGfx.clear();
+      this._switchBurstTime = -1;
+      return;
+    }
+
+    this._switchBurstGfx.clear();
+
+    const cam = this.scene.cameras.main;
+    const cx = cam.scrollX + cam.width / 2;
+    const cy = cam.scrollY + cam.height / 2;
+    const pal = WORLD_PALETTES[this.currentWorld];
+    const flashColor = pal.flashColor;
+
+    // Outer ring expands outward
+    const maxR = Math.sqrt(cam.width * cam.width + cam.height * cam.height) * 0.6;
+    const r = progress * maxR;
+    const alpha = (1 - progress) * 0.45;
+    this._switchBurstGfx.lineStyle(3 + (1 - progress) * 8, flashColor, alpha);
+    this._switchBurstGfx.strokeCircle(cx, cy, r);
+
+    // Inner secondary ring (slightly delayed)
+    if (progress > 0.1) {
+      const r2 = (progress - 0.1) / 0.9 * maxR * 0.7;
+      const alpha2 = (1 - (progress - 0.1) / 0.9) * 0.25;
+      this._switchBurstGfx.lineStyle(2, flashColor, alpha2);
+      this._switchBurstGfx.strokeCircle(cx, cy, r2);
     }
   }
 
@@ -708,16 +894,23 @@ export class DimensionBackground {
   /* ── Energy Grid ────────────────────────────────── */
 
   private updateGrid(deltaMs: number, intensity: number): void {
-    this.gridTime += deltaMs;
+    this.gridRedrawAccum += deltaMs;
+    if (this.gridRedrawAccum < 100) return;
+    this.gridRedrawAccum = 0;
+
+    this.gridTime += 100;
     const t = this.gridTime;
-    const amplitude = intensity * 1.5;
-    const spacing = 120; // Increased from 80
+    const amplitude = this.currentWorld === WorldType.CIRCUIT
+      ? 2.2 + intensity * 2.5
+      : intensity * 1.0;
+    const spacing = 120;
 
     this.gridGfx.clear();
 
-    const primaryAlpha = 0.50 + intensity * 0.15;
+    const primaryAlpha = this.currentWorld === WorldType.CIRCUIT
+      ? 0.18 + intensity * 0.10
+      : 0.07 + intensity * 0.06;
 
-    // Single grid only (removed secondary for performance)
     this.gridGfx.lineStyle(1.5, this.gridPrimary, primaryAlpha);
     this.drawWarpedGrid(t, amplitude, spacing, 0, 0);
   }
@@ -729,7 +922,7 @@ export class DimensionBackground {
     offsetX: number,
     offsetY: number,
   ): void {
-    const step = 20; // Increased from 8 — 2.5× fewer line segments
+    const step = 40;
     const cam = this.scene.cameras.main;
     const cx = cam.scrollX;
     const cy = cam.scrollY;
@@ -913,11 +1106,13 @@ export class DimensionBackground {
     const g = Math.round(Phaser.Math.Linear(this.borderFrom.g, this.borderTo.g, t));
     const b = Math.round(Phaser.Math.Linear(this.borderFrom.b, this.borderTo.b, t));
     const color = (r << 16) | (g << 8) | b;
-    const alpha = 0.55 + intensity * 0.25;
+    const alpha = this.currentWorld === WorldType.CIRCUIT
+      ? 0.70 + intensity * 0.30
+      : 0.45 + intensity * 0.20;
 
     this.borderGfx.clear();
     // Single border line (removed inner glow for perf)
-    this.borderGfx.lineStyle(4, color, alpha);
+    this.borderGfx.lineStyle(this.currentWorld === WorldType.CIRCUIT ? 6 : 4, color, alpha);
     this.borderGfx.strokeRect(2, 2, WORLD_WIDTH - 4, WORLD_HEIGHT - 4);
   }
 
@@ -933,6 +1128,8 @@ export class DimensionBackground {
     this.shardGfx.destroy();
     this.crackGfx.destroy();
     this.borderGfx.destroy();
+    this.combatGfx.destroy();
+    this._switchBurstGfx.destroy();
     this.particles.length = 0;
     this.shards.length = 0;
     this.cracks.length = 0;

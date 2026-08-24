@@ -25,7 +25,7 @@ const WAVE_EVENTS: Record<WaveEventType, WaveEvent> = {
 };
 
 const WAVE_EVENT_SEQUENCE: WaveEventType[] = [
-  "normal", "swarm", "normal", "shadow_protocol", "fortress",
+  "normal", "normal", "shadow_protocol", "swarm", "fortress",
   "elite_surge", "swarm", "shadow_protocol", "fortress", "final_push",
   "swarm", "elite_surge", "shadow_protocol", "final_push",
 ];
@@ -82,8 +82,11 @@ export class WaveManager {
 
   getWaveConfig(): WaveConfig {
     const wave = this.currentWave;
+    // Post-boss breather: wave 6 and 11 (right after boss kills) are easier
+    const isPostBoss = wave === 6 || wave === 11;
     const pressureMult =
       wave <= 3 ? 0.70 :
+      isPostBoss ? 0.70 :
       wave <= 6 ? 0.85 :
       wave <= 10 ? 1.0 :
       1.12;

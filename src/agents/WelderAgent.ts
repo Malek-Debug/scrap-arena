@@ -54,6 +54,9 @@ export class WelderAgent extends BaseAgent {
     speed = 80,
   ) {
     super(WelderAgent._buildActions(), 0.08);
+    this.worldType = "CIRCUIT";
+    this.agentKind = "welder";
+    this.hitRadius = 19; // frame 44px, scale 1.0 → visual radius ~22px; 19px precise
     this.posX = x;
     this.posY = y;
     this.targetX = x;
@@ -323,31 +326,50 @@ export class WelderAgent extends BaseAgent {
   /** Crackling repair-arc beam between welder and ally + brief shield ring on ally. */
   private spawnRepairArc(tx: number, ty: number): void {
     if (!this._scene) return;
-    // Jagged welding arc
+
+    // Outer glow layer — wide, soft green halo
+    const glow = this._scene.add.graphics().setDepth(98).setBlendMode(Phaser.BlendModes.ADD);
+    glow.lineStyle(9, 0x44ff88, 0.28);
+    glow.moveTo(this.posX, this.posY);
+    glow.lineTo(tx, ty);
+    glow.strokePath();
+
+    // Inner core — jagged bright teal arc
     const gfx = this._scene.add.graphics().setDepth(99).setBlendMode(Phaser.BlendModes.ADD);
-    gfx.lineStyle(2, 0x66ffee, 0.95);
-    const segs = 5;
-    let cx = this.posX, cy = this.posY;
-    gfx.beginPath(); gfx.moveTo(cx, cy);
+    gfx.lineStyle(3, 0x88ffdd, 1.0);
+    const segs = 7;
+    gfx.beginPath(); gfx.moveTo(this.posX, this.posY);
     for (let i = 1; i <= segs; i++) {
       const t = i / segs;
-      const lx = this.posX + (tx - this.posX) * t + (Math.random() - 0.5) * 8;
-      const ly = this.posY + (ty - this.posY) * t + (Math.random() - 0.5) * 8;
+      const lx = this.posX + (tx - this.posX) * t + (Math.random() - 0.5) * 10;
+      const ly = this.posY + (ty - this.posY) * t + (Math.random() - 0.5) * 10;
       gfx.lineTo(lx, ly);
-      cx = lx; cy = ly;
     }
     gfx.strokePath();
-    this._scene.tweens.add({
-      targets: gfx, alpha: 0, duration: 180,
-      onComplete: () => gfx.destroy(),
-    });
-    // Shield ring on healed ally
-    const ring = this._scene.add.circle(tx, ty, 14, 0, 0)
-      .setStrokeStyle(2, 0x88ffee, 0.8)
+
+    // Glow circle at welder end (source)
+    const srcGlow = this._scene.add.circle(this.posX, this.posY, 11, 0x44ff88, 0.65)
+      .setDepth(100).setBlendMode(Phaser.BlendModes.ADD);
+
+    // Glow circle at ally end (target)
+    const dstGlow = this._scene.add.circle(tx, ty, 9, 0x00ffcc, 0.75)
+      .setDepth(100).setBlendMode(Phaser.BlendModes.ADD);
+
+    const dur = 300;
+    for (const obj of [glow, gfx, srcGlow, dstGlow]) {
+      this._scene.tweens.add({
+        targets: obj, alpha: 0, duration: dur,
+        onComplete: () => obj.destroy(),
+      });
+    }
+
+    // Expanding shield ring on healed ally
+    const ring = this._scene.add.circle(tx, ty, 16, 0, 0)
+      .setStrokeStyle(3, 0x44ff88, 1.0)
       .setDepth(99).setBlendMode(Phaser.BlendModes.ADD);
     this._scene.tweens.add({
-      targets: ring, scale: 1.6, alpha: 0,
-      duration: 320, ease: "Quad.easeOut",
+      targets: ring, scaleX: 2.0, scaleY: 2.0, alpha: 0,
+      duration: 360, ease: "Quad.easeOut",
       onComplete: () => ring.destroy(),
     });
   }

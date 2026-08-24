@@ -38,8 +38,8 @@ export class WorldManager {
 
   // Instability — staying in one world too long is dangerous
   private worldTimer = 0;
-  private static readonly INSTABILITY_THRESHOLD = 18000; // 18s before instability
-  private static readonly INSTABILITY_DAMAGE_INTERVAL = 1500; // damage tick rate
+  private static readonly INSTABILITY_THRESHOLD = 14000; // 14s before instability
+  private static readonly INSTABILITY_DAMAGE_INTERVAL = 1200; // damage tick rate
   private instabilityDmgTimer = 0;
 
   get canSwitch(): boolean {
@@ -77,7 +77,43 @@ export class WorldManager {
   }
 
   setPhaseMastery(level: number): void {
-    this.switchCooldownDuration = Math.max(2000, 4000 - level * 500);
+    this.switchCooldownDuration = Math.max(1600, 4000 - level * 600);
+  }
+
+  /** Returns true if `agent` belongs to the given world. */
+  static isAgentInWorld(agent: { worldType?: "FOUNDRY" | "CIRCUIT" }, world: WorldType): boolean {
+    const w = agent.worldType ?? "FOUNDRY";
+    return world === WorldType.FOUNDRY ? w === "FOUNDRY" : w === "CIRCUIT";
+  }
+
+  /** Convenience — checks against `this.currentWorld`. */
+  isAgentInCurrentWorld(agent: { worldType?: "FOUNDRY" | "CIRCUIT" }): boolean {
+    return WorldManager.isAgentInWorld(agent, this.currentWorld);
+  }
+
+  // ── Dimension gameplay bonuses ──────────────────────────────────────────
+  // Foundry: aggressive — more damage, faster heat buildup
+  // Circuit: sustain — fast cooling, fast movement, normal damage
+  // Neither dimension penalizes — Foundry gives a burst bonus, Circuit gives sustain tools.
+
+  /** Damage multiplier from current dimension (applied to player bullets). */
+  get damageMult(): number {
+    return this.currentWorld === WorldType.FOUNDRY ? 1.20 : 1.0;
+  }
+
+  /** Heat generation multiplier (higher = overheat faster). */
+  get heatGenMult(): number {
+    return this.currentWorld === WorldType.FOUNDRY ? 1.25 : 0.85;
+  }
+
+  /** Heat dissipation multiplier (higher = cool down faster). */
+  get heatDissipMult(): number {
+    return this.currentWorld === WorldType.FOUNDRY ? 0.85 : 1.40;
+  }
+
+  /** Movement speed multiplier from dimension. */
+  get speedMult(): number {
+    return this.currentWorld === WorldType.FOUNDRY ? 1.0 : 1.12;
   }
 
   /** Returns instability damage to apply this frame (0 if stable) */
@@ -89,7 +125,7 @@ export class WorldManager {
       this.instabilityDmgTimer += deltaMs;
       if (this.instabilityDmgTimer >= WorldManager.INSTABILITY_DAMAGE_INTERVAL) {
         this.instabilityDmgTimer = 0;
-        return 3; // 3 damage per tick when unstable
+        return 5;
       }
     }
     return 0;

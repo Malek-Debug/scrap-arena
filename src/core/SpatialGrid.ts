@@ -45,13 +45,12 @@ export class SpatialGrid {
   }
 
   /**
-   * Returns all entity IDs within `radius` of (x,y).
+   * Returns all entity IDs in cells touching `radius` around (x,y).
    * Writes into `out` array to avoid allocation — caller clears between uses.
    */
   query(x: number, y: number, radius: number, out: number[]): void {
     const [cc, cr] = this.cellOf(x, y);
     const span = Math.ceil(radius / this.cellSize);
-    const r2 = radius * radius;
 
     for (let dc = -span; dc <= span; dc++) {
       const col = cc + dc;

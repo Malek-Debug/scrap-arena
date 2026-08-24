@@ -16,6 +16,7 @@ export class ScrapManager {
   private scraps: ScrapItem[] = [];
   private _vortexActive = false;
   private _vortexMultiplier = 1;
+  private readonly _vortexSources = new Map<string, number>();
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -25,11 +26,20 @@ export class ScrapManager {
     return this.scraps.length;
   }
 
-  setVortex(active: boolean, multiplier = 1): void {
-    this._vortexActive = active;
-    this._vortexMultiplier = multiplier;
+  setVortex(active: boolean, multiplier = 1, source = "default"): void {
+    if (active) {
+      this._vortexSources.set(source, multiplier);
+    } else {
+      this._vortexSources.delete(source);
+    }
+
+    this._vortexActive = this._vortexSources.size > 0;
+    this._vortexMultiplier = this._vortexActive
+      ? Math.max(...this._vortexSources.values())
+      : 1;
+
     for (const item of this.scraps) {
-      if (active) item.sprite.setTint(0xffcc00);
+      if (this._vortexActive) item.sprite.setTint(0xffcc00);
       else item.sprite.clearTint();
     }
   }
@@ -87,11 +97,15 @@ export class ScrapManager {
       item.sprite.destroy();
     }
     this.scraps.length = 0;
+    this._vortexSources.clear();
+    this._vortexActive = false;
+    this._vortexMultiplier = 1;
   }
 
   private collect(item: ScrapItem, index: number): void {
     this.scraps.splice(index, 1);
     SystemsBus.instance.emit("scrap:collected", item.value);
+    this.scene.tweens.killTweensOf(item.sprite);
 
     this.scene.tweens.add({
       targets: item.sprite,

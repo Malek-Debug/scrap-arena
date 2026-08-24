@@ -21,3 +21,10 @@ Thumbs.db
 
 # Vite cache
 .vite/
+
+# Local browser smoke profiles
+.smoke/
+
+# Server build output (built on deploy)
+server/dist/
+server/node_modules/

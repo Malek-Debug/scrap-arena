@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { UI_FONT } from "./UITheme";
 
 /**
  * VFXPool — pre-allocated object pool for common visual effects.
@@ -33,7 +34,7 @@ export class VFXPool {
     for (let i = 0; i < VFXPool.TEXT_SLOTS; i++) {
       const t = scene.add
         .text(0, 0, "", {
-          fontFamily: "monospace",
+          fontFamily: UI_FONT,
           fontSize: "14px",
           color: "#ffffff",
           fontStyle: "bold",

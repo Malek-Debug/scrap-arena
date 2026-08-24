@@ -7,3 +7,5 @@ export { CombatSystem } from "./CombatSystem";
 export type { CombatSystemDeps } from "./CombatSystem";
 export { PlayerController } from "./PlayerController";
 export { StoryController } from "./StoryController";
+export { ReactorController } from "./ReactorController";
+export type { ReactorControllerDeps } from "./ReactorController";

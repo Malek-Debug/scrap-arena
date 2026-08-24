@@ -8,6 +8,7 @@ import { ShootSkill } from "../ai/skills/ShootSkill";
 import { SteeringBehaviors, SteeredAgent } from "../ai/SteeringBehaviors";
 import type { PlayerPredictor } from "../ai/PlayerPredictor";
 import { WORLD_WIDTH, WORLD_HEIGHT, CELL_W, CELL_H } from "../core";
+import { AudioManager } from "../audio";
 
 /**
  * EnemyAgent — aggressive pursuer with ranged attack.
@@ -62,8 +63,11 @@ export class EnemyAgent extends BaseAgent {
     playerRef: { x: number; y: number },
     hp = 60,
     speed = 90,
+    damageMultiplier = 1,
   ) {
     super(EnemyAgent._buildActions(), 0.08);
+    this.agentKind = "enemy";
+    this.hitRadius = 20; // frame 48px, scale 1.0 → visual radius ~24px; 20px gives forgiving-but-precise hit
     this.posX = x;
     this.posY = y;
     this.targetX = x;
@@ -72,8 +76,13 @@ export class EnemyAgent extends BaseAgent {
     this.hp = hp;
     this.maxHp = hp;
     this.speed = speed;
+    this.damageMultiplier = damageMultiplier;
     this.strafeDir = Math.random() < 0.5 ? 1 : -1;
-    this.shootSkill = new ShootSkill(this.id, { damage: 8, range: 320, tint: 0xff3300 }, 1200);
+    this.shootSkill = new ShootSkill(this.id, {
+      damage: Math.max(1, Math.round(8 * this.damageMultiplier)),
+      range: 320,
+      tint: 0xff3300,
+    }, 1200);
   }
 
   bindScene(scene: Phaser.Scene): void {
@@ -184,7 +193,7 @@ export class EnemyAgent extends BaseAgent {
         );
         this.setTarget(strafePos.x, strafePos.y);
 
-        // Shoot with predictive intercept — 3-round burst pattern (machine-gun feel)
+        // Shoot with predictive intercept — 3-round burst with 180ms telegraph
         if (this.shootSkill.canUse && this._scene && dist < 360 && !this._suppressed) {
           let aimX = this.playerRef.x;
           let aimY = this.playerRef.y;
@@ -203,16 +212,32 @@ export class EnemyAgent extends BaseAgent {
             aimY = this.playerRef.y + Math.sin(intercept) * 50;
           }
           const aimAngle = Math.atan2(aimY - this.posY, aimX - this.posX);
-          // Fire 3-round burst with tight jitter
-          this.shootSkill.tryUse(this.posX, this.posY, aimAngle);
-          for (let i = 1; i <= 2; i++) {
-            this._scene.time.delayedCall(70 * i, () => {
-              if (this.isDead || this._suppressed) return;
-              const a2 = aimAngle + (Math.random() - 0.5) * 0.08;
-              this.shootSkill.reset(); // bypass per-shot cooldown for burst
-              this.shootSkill.tryUse(this.posX, this.posY, a2);
-            });
-          }
+
+          // Telegraph: red glow pulse + audio chirp before firing
+          AudioManager.instance.enemyTelegraph();
+          if (this.sprite?.active) this.sprite.setTint(0xff4400);
+          const telegraph = this._scene.add.circle(this.posX, this.posY, 14, 0xff3300, 0.5)
+            .setDepth(48).setBlendMode(Phaser.BlendModes.ADD);
+          this._scene.tweens.add({
+            targets: telegraph, scale: 2, alpha: 0, duration: 180,
+            onComplete: () => telegraph.destroy(),
+          });
+
+          // Delay the actual burst by 180ms (telegraph window)
+          this.shootSkill.reset();
+          this._scene.time.delayedCall(180, () => {
+            if (this.isDead || this._suppressed) return;
+            if (this.sprite?.active) this.sprite.clearTint();
+            this.shootSkill.tryUse(this.posX, this.posY, aimAngle);
+            for (let i = 1; i <= 2; i++) {
+              this._scene?.time.delayedCall(70 * i, () => {
+                if (this.isDead || this._suppressed) return;
+                const a2 = aimAngle + (Math.random() - 0.5) * 0.08;
+                this.shootSkill.reset();
+                this.shootSkill.tryUse(this.posX, this.posY, a2);
+              });
+            }
+          });
         }
         break;
       }

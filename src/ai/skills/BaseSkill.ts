@@ -10,7 +10,7 @@
  */
 export abstract class BaseSkill {
   abstract readonly name: string;
-  abstract readonly cooldownMs: number;
+  abstract cooldownMs: number;
 
   private _lastUsed = -Infinity;
   private _charges: number;

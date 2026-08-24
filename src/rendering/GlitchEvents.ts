@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { GAME_WIDTH, GAME_HEIGHT } from "../core";
+import { Juice } from "./Juice";
 
 const enum GlitchType {
   ColorInversion,
@@ -21,6 +22,7 @@ export class GlitchEvents {
   private isDimensionShifting = false;
   private pendingCleanups: Phaser.Time.TimerEvent[] = [];
   private destroyed = false;
+  private _streakCooldown = 0;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -31,6 +33,7 @@ export class GlitchEvents {
 
   update(deltaMs: number, intensity: number): void {
     if (this.destroyed) return;
+    if (this._streakCooldown > 0) this._streakCooldown -= deltaMs;
 
     this.timer += deltaMs;
 
@@ -62,20 +65,15 @@ export class GlitchEvents {
 
   triggerOnKillStreak(killCount: number): void {
     if (this.destroyed) return;
+    if (this._streakCooldown > 0) return;
 
-    if (killCount >= 6) {
-      this.colorInversionFlash();
+    if (killCount >= 8) {
       this.screenTear();
-      this.dimensionShift();
-      this.arenaTwist();
       this.timeFracture();
-      this.voidPulse();
-      this.staticNoiseBurst();
-    } else if (killCount >= 4) {
-      this.timeFracture();
-      this.colorInversionFlash();
-    } else if (killCount >= 2) {
+      this._streakCooldown = 2000;
+    } else if (killCount >= 5) {
       this.screenTear();
+      this._streakCooldown = 1500;
     }
   }
 
@@ -147,7 +145,7 @@ export class GlitchEvents {
   // ── 2. Screen Tear ──────────────────────────────────────────
 
   private screenTear(): void {
-    const stripCount = Phaser.Math.Between(3, 6);
+    const stripCount = Phaser.Math.Between(2, 3);
     const strips: Phaser.GameObjects.Rectangle[] = [];
     const colors = [0x3300ff, 0x00ff66, 0xff0066];
 
@@ -264,27 +262,8 @@ export class GlitchEvents {
       onComplete: () => gfx.destroy(),
     });
 
-    // Slow-mo phase
-    scene.time.timeScale = 0.3;
-    if (scene.physics?.world) {
-      scene.physics.world.timeScale = 1 / 0.3;
-    }
-
-    this.safeDelay(200, () => {
-      // Speed-up phase
-      scene.time.timeScale = 1.5;
-      if (scene.physics?.world) {
-        scene.physics.world.timeScale = 1 / 1.5;
-      }
-
-      this.safeDelay(100, () => {
-        // Restore normal
-        scene.time.timeScale = 1;
-        if (scene.physics?.world) {
-          scene.physics.world.timeScale = 1;
-        }
-      });
-    });
+    // Delegate time-scale changes to the centralized controller
+    Juice.timeFracture(scene);
   }
 
   // ── 6. Void Pulse ───────────────────────────────────────────
@@ -313,7 +292,7 @@ export class GlitchEvents {
   // ── 7. Static Noise Burst ───────────────────────────────────
 
   private staticNoiseBurst(): void {
-    const count = Phaser.Math.Between(50, 80);
+    const count = Phaser.Math.Between(15, 25);
     const particles: Phaser.GameObjects.Rectangle[] = [];
     const glitchColors = [0x00ff88, 0xaa44ff, 0x00ccff, 0xff0066, 0xffffff];
 

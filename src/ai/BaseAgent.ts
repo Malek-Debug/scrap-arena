@@ -25,6 +25,13 @@ export abstract class BaseAgent {
   readonly memory: Memory;
   readonly id: number;
 
+  /** Explicit world assignment — "FOUNDRY" or "CIRCUIT". Used instead of
+   *  constructor.name which is mangled by minification in production builds. */
+  worldType: "FOUNDRY" | "CIRCUIT" = "FOUNDRY";
+
+  /** Agent type identifier — stable across minification. */
+  agentKind = "unknown";
+
   /** Phaser sprite — null in headless mode */
   sprite: Phaser.Physics.Arcade.Sprite | null = null;
 
@@ -42,6 +49,12 @@ export abstract class BaseAgent {
   isStaggered = false;
   /** True while the fear timer is active — agent flees the player. */
   isFearing = false;
+  /** Wave/event damage scaling applied to this agent's outgoing damage. */
+  damageMultiplier = 1;
+  /** Effective collision radius for player projectile hits (px). Set per agent type. */
+  hitRadius = 18;
+  /** Frames remaining for hit flash tint (decremented by visual update). */
+  hitFlashFrames = 0;
 
   private static nextId = 0;
 

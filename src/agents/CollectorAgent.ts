@@ -54,6 +54,9 @@ export class CollectorAgent extends BaseAgent {
     speed = 110,
   ) {
     super(CollectorAgent._buildActions(), 0.1);
+    this.worldType = "CIRCUIT";
+    this.agentKind = "collector";
+    this.hitRadius = 18; // frame 48px, scale 0.85 → visual radius ~20px; 18px feels precise
     this.posX = x;
     this.posY = y;
     this.targetX = x;

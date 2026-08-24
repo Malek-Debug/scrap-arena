@@ -1,8 +1,7 @@
-import Phaser from "phaser";
 import {
   type DialogueLine, type NarrativeBeat, type StoryFlags,
   NARRATIVE_BEATS, ARIA_TAUNTS, VERA_ENCOURAGEMENTS,
-  createDefaultFlags,
+  ROOM_LOGS, createDefaultFlags,
 } from "./StoryData";
 
 export type StoryPhase =
@@ -159,6 +158,40 @@ export class StorySystem {
     this._firedBeats.add(beat.id);
     if (beat.setFlags) Object.assign(this.flags, beat.setFlags);
     return beat.lines;
+  }
+
+  /** Fire a specific beat by ID (must be trigger:"manual"). Returns lines, or empty if already fired / condition not met. */
+  fireManualBeat(id: string): DialogueLine[] {
+    const beat = NARRATIVE_BEATS.find(b => b.id === id);
+    if (!beat) return [];
+    if (beat.trigger !== "manual") return [];
+    const once = beat.once ?? true;
+    if (once && this._firedBeats.has(id)) return [];
+    if (beat.condition && !beat.condition(this.flags)) return [];
+    if (beat.lines.length > 0) {
+      if (beat.setFlags) Object.assign(this.flags, beat.setFlags);
+      if (once) this._firedBeats.add(id);
+      return beat.lines;
+    }
+    if (once) this._firedBeats.add(id);
+    return [];
+  }
+
+  /**
+   * Discover room logs for the given theme on first entry.
+   * Each undiscovered log ID is added to flags.logsFound exactly once per run.
+   * Returns DialogueLine[] ready to enqueue; empty if all logs for this theme
+   * were already found or no logs exist for the theme.
+   */
+  discoverLog(theme: string): DialogueLine[] {
+    const lines: DialogueLine[] = [];
+    for (const log of ROOM_LOGS) {
+      if (log.roomTheme !== theme) continue;
+      if (this.flags.logsFound.has(log.id)) continue;
+      this.flags.logsFound.add(log.id);
+      lines.push({ speaker: "LOG", text: `[${log.title}] ${log.text}`, duration: 6000 });
+    }
+    return lines;
   }
 
   /** Consume pending lines (used by DialogueUI) */

@@ -11,3 +11,8 @@ export { WeaponVisual } from "./WeaponVisual";
 export { EnemyRadar } from "./EnemyRadar";
 export { VFXPool } from "./VFXPool";
 export { DialogueUI } from "./DialogueUI";
+export { ParticleVFX } from "./ParticleVFX";
+export { EnvironmentManager } from "./EnvironmentManager";
+export { WeaponVFX } from "./WeaponVFX";
+export { SettingsUI } from "./SettingsUI";
+export { DimensionOverlay } from "./DimensionOverlay";

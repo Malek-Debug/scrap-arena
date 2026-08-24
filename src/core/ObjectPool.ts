@@ -8,6 +8,7 @@ type Resetter<T> = (obj: T) => void;
  */
 export class ObjectPool<T> {
   private pool: T[];
+  private readonly objects: T[] = [];
   private activeCount = 0;
   private readonly factory: Factory<T>;
   private readonly reset: Resetter<T>;
@@ -19,7 +20,9 @@ export class ObjectPool<T> {
     this.maxSize = maxSize;
     this.pool = new Array<T>(initialSize);
     for (let i = 0; i < initialSize; i++) {
-      this.pool[i] = factory();
+      const obj = factory();
+      this.pool[i] = obj;
+      this.objects.push(obj);
     }
   }
 
@@ -30,7 +33,9 @@ export class ObjectPool<T> {
     }
     if (this.activeCount < this.maxSize) {
       this.activeCount++;
-      return this.factory();
+      const obj = this.factory();
+      this.objects.push(obj);
+      return obj;
     }
     throw new Error(`ObjectPool exhausted: ${this.activeCount}/${this.maxSize} active`);
   }
@@ -60,7 +65,20 @@ export class ObjectPool<T> {
 
   prewarm(count: number): void {
     for (let i = 0; i < count; i++) {
-      this.pool.push(this.factory());
+      const obj = this.factory();
+      this.pool.push(obj);
+      this.objects.push(obj);
     }
+  }
+
+  dispose(disposer?: (obj: T) => void): void {
+    if (disposer) {
+      for (const obj of this.objects) {
+        disposer(obj);
+      }
+    }
+    this.pool.length = 0;
+    this.objects.length = 0;
+    this.activeCount = 0;
   }
 }

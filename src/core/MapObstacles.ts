@@ -1,5 +1,9 @@
 import Phaser from "phaser";
 import { WORLD_WIDTH, WORLD_HEIGHT, CELL_W as CFG_CELL_W, CELL_H as CFG_CELL_H, ROOM_COLS, ROOM_ROWS } from "./GameConfig";
+import { EnvironmentManager } from "../rendering/EnvironmentManager";
+import { ParticleVFX } from "../rendering/ParticleVFX";
+import { Juice } from "../rendering/Juice";
+import { AudioManager } from "../audio/AudioManager";
 
 // ─────────────────────────────────────────────────────────────
 // MapObstacles — room-based machine city generation system
@@ -144,8 +148,6 @@ const THEMES: Record<RoomTheme, ThemeDef> = {
   vault:       { pool: ["server_rack","data_core","terminal","hologram_table","shield_pylon","pillar","containment_tank"],         minCount: 5, maxCount: 12 },
 };
 
-const THEME_CYCLE: RoomTheme[] = ["factory", "server", "power", "control", "maintenance"];
-
 const FLOOR_COLORS: Record<RoomTheme, { base: number; grid: number; accent: number; border: number }> = {
   factory:     { base: 0x0e1612, grid: 0x1a2a1e, accent: 0x00ee66, border: 0x00ff88 },  // Bio Lab: neon green
   server:      { base: 0x0c1018, grid: 0x152030, accent: 0x2288ff, border: 0x44aaff },  // Data Lab: electric blue
@@ -207,7 +209,9 @@ export class MapObstacles {
    *  can't pass through locked doors (same rule as walls). Cleared on unlock. */
   private barrierBounds: { x: number; y: number; w: number; h: number; theme: string }[] = [];
   private roomPhysicsZones: RoomPhysicsZone[] = [];
+  private _zoneGrid: Map<number, RoomPhysicsZone> = new Map();
   private activePropsGfx!: Phaser.GameObjects.Graphics;
+  private _propLoopTimers: Phaser.Time.TimerEvent[] = [];
   // ── Interaction points (set during room build) ──────────
   public shopTerminalPos: { x: number; y: number } | null = null;
   public reactorMachinePos: { x: number; y: number } | null = null;
@@ -220,6 +224,7 @@ export class MapObstacles {
   private _bossWindHudGfx?: Phaser.GameObjects.Graphics;
   private _bossWindHudText?: Phaser.GameObjects.Text;
   public  isBossArena = false;
+  private bossArenaBounds: { minX: number; maxX: number; minY: number; maxY: number } | null = null;
 
   staticGroup!: Phaser.Physics.Arcade.StaticGroup;
 
@@ -237,6 +242,7 @@ export class MapObstacles {
     this.bossWindForce = { x: 0, y: 0 };
     this._bossWindAngle = 0;
     this._bossWindTimer = 0;
+    this.bossArenaBounds = null;
 
     if (wave % 5 === 0) {
       this.isBossArena = true;
@@ -316,6 +322,8 @@ export class MapObstacles {
     return false;
   }
 
+  private _resolveOut = { x: 0, y: 0 };
+
   resolveCollision(x: number, y: number, radius: number): { x: number; y: number } {
     let rx = x, ry = y;
     for (const obs of this.obstacles) {
@@ -336,8 +344,6 @@ export class MapObstacles {
         }
       }
     }
-    // Also push enemies out of locked-door barriers (barrier physics uses setPosition
-    // which bypasses Phaser physics, so we must resolve manually the same as walls).
     for (const b of this.barrierBounds) {
       const cx = b.x + b.w / 2;
       const cy = b.y + b.h / 2;
@@ -355,15 +361,19 @@ export class MapObstacles {
         }
       }
     }
-    return { x: rx, y: ry };
+    this._resolveOut.x = rx;
+    this._resolveOut.y = ry;
+    return this._resolveOut;
   }
 
   /** Barrier-only collision correction for the player.
    *  Phaser handles obstacle walls via arcade physics; this adds a manual
    *  safety net specifically for locked-door barriers so the player can never
-   *  cross into a locked room even if the physics step allows tunneling. */
-  resolveBarrierCollision(x: number, y: number, radius: number): { x: number; y: number } {
+   *  cross into a locked room even if the physics step allows tunneling.
+   *  Returns hitTheme when the player actually touched a barrier this frame. */
+  resolveBarrierCollision(x: number, y: number, radius: number): { x: number; y: number; hitTheme?: string } {
     let rx = x, ry = y;
+    let hitTheme: string | undefined;
     for (const b of this.barrierBounds) {
       const cx = b.x + b.w / 2;
       const cy = b.y + b.h / 2;
@@ -379,9 +389,18 @@ export class MapObstacles {
         } else {
           ry += dy >= 0 ? overlapY : -overlapY;
         }
+        hitTheme = b.theme;
       }
     }
-    return { x: rx, y: ry };
+    return { x: rx, y: ry, hitTheme };
+  }
+
+  /** Hard boss-arena containment for high-knockback frames that can tunnel through Arcade walls. */
+  resolveBossArenaContainment(x: number, y: number, radius: number): { x: number; y: number; clamped: boolean } {
+    if (!this.isBossArena || !this.bossArenaBounds) return { x, y, clamped: false };
+    const nx = Phaser.Math.Clamp(x, this.bossArenaBounds.minX + radius, this.bossArenaBounds.maxX - radius);
+    const ny = Phaser.Math.Clamp(y, this.bossArenaBounds.minY + radius, this.bossArenaBounds.maxY - radius);
+    return { x: nx, y: ny, clamped: nx !== x || ny !== y };
   }
 
   bulletHit(bx: number, by: number, damage: number): boolean {
@@ -392,6 +411,7 @@ export class MapObstacles {
       if (Math.abs(bx - cx) < obs.w / 2 + 4 && Math.abs(by - cy) < obs.h / 2 + 4) {
         if (obs.destructible) {
           obs.hp -= damage;
+          this._corruptibleDirty = true;
           if (obs.sprite && obs.sprite.active) {
             (obs.sprite as Phaser.GameObjects.Sprite).setTint?.(0xffffff);
             this.scene.time.delayedCall(60, () => {
@@ -460,16 +480,26 @@ export class MapObstacles {
     return this.obstacles;
   }
 
+  private _corruptibleCache: { id: number; x: number; y: number; w: number; h: number; corruption: number }[] = [];
+  private _corruptibleDirty = true;
+
   getCorruptibleMachines(): { id: number; x: number; y: number; w: number; h: number; corruption: number }[] {
-    return this.obstacles
-      .filter(o => o.kind !== "wall" && o.hp > 0 && o.corruption < 100)
-      .map(o => ({ id: o.id, x: o.x + o.w / 2, y: o.y + o.h / 2, w: o.w, h: o.h, corruption: o.corruption }));
+    if (!this._corruptibleDirty) return this._corruptibleCache;
+    this._corruptibleDirty = false;
+    this._corruptibleCache.length = 0;
+    for (const o of this.obstacles) {
+      if (o.kind !== "wall" && o.hp > 0 && o.corruption < 100) {
+        this._corruptibleCache.push({ id: o.id, x: o.x + o.w / 2, y: o.y + o.h / 2, w: o.w, h: o.h, corruption: o.corruption });
+      }
+    }
+    return this._corruptibleCache;
   }
 
   corruptMachine(id: number, amount: number): void {
     const obs = this.obstacles.find(o => o.id === id);
     if (!obs || obs.kind === "wall" || obs.hp <= 0) return;
     obs.corruption = Math.min(100, obs.corruption + amount);
+    this._corruptibleDirty = true;
   }
 
   repairNearby(px: number, py: number, repairRadius: number = 80, repairAmount: number = 25): boolean {
@@ -508,7 +538,7 @@ export class MapObstacles {
   getRoomPhysicsAt(x: number, y: number): RoomPhysicsZone | null {
     const col = Math.floor(x / CELL_W);
     const row = Math.floor(y / CELL_H);
-    return this.roomPhysicsZones.find(z => z.col === col && z.row === row) ?? null;
+    return this._zoneGrid.get(col * 100 + row) ?? null;
   }
 
   getRoomThemeAtCell(col: number, row: number): RoomTheme | null {
@@ -776,6 +806,7 @@ export class MapObstacles {
     this._bossWindHudGfx = undefined;
     this._bossWindHudText = undefined;
     this.isBossArena = false;
+    this.bossArenaBounds = null;
     this.obstacles = [];
     this.decorations = [];
     this.glows = [];
@@ -783,8 +814,11 @@ export class MapObstacles {
     this.accessBarriers = [];
     this.barrierBounds = [];
     this.roomPhysicsZones = [];
+    this._zoneGrid.clear();
     this.staticGroup.clear(true, true);
     this.activePropsGfx.clear();
+    for (const t of this._propLoopTimers) t.remove(false);
+    this._propLoopTimers = [];
   }
 
   destroy(): void {
@@ -837,40 +871,6 @@ export class MapObstacles {
         active[r][c] ? LAYOUT[r][c] : ("hub" as RoomTheme),
       ),
     );
-  }
-
-  // ─── Mini-room Ceiling Walls (row 0) ─────────────────────
-  // Reactor Core and Armory occupy only the BOTTOM HALF of their row-0 cell.
-  // A horizontal divider wall with a door gap is added at y = CELL_H / 2.
-  private _buildMiniRoomInnerWalls(active: boolean[][], themes: RoomTheme[][]): void {
-    for (let c = 0; c < GRID_COLS; c++) {
-      if (!active[0][c]) continue;
-      if (themes[0][c] !== "power" && themes[0][c] !== "armory") continue;
-
-      const cellX = c * CELL_W;
-      const midY = Math.floor(CELL_H / 2);  // 360
-
-      // Solid wall across the top half — no door gap. Player can only be in bottom half.
-      this._placeWall(cellX, midY - WALL_T / 2, CELL_W, WALL_T);
-
-      // Visual: tint the "dead zone" above the inner wall dark grey
-      const deadZone = this.scene.add.rectangle(
-        cellX + CELL_W / 2, midY / 2,
-        CELL_W, midY,
-        0x050508, 0.92,
-      ).setDepth(1);
-      this.decorations.push(deadZone);
-
-      // Label in the dead zone
-      const theme = themes[0][c];
-      const labelColor = theme === "power" ? "#00ff88" : "#ff8844";
-      const subLabel = this.scene.add.text(
-        cellX + CELL_W / 2, midY / 2,
-        theme === "power" ? "▲  REACTOR CORE  ▲" : "▲  ARMORY  ▲",
-        { fontFamily: "monospace", fontSize: "13px", color: labelColor },
-      ).setOrigin(0.5).setDepth(2).setAlpha(0.4);
-      this.decorations.push(subLabel);
-    }
   }
 
   // ─── Wall Construction ───────────────────────────────────
@@ -994,34 +994,79 @@ export class MapObstacles {
 
   private _placeDoorMarker(x: number, y: number, w: number, h: number): void {
     const isHoriz = w > h;
-    const floorW = isHoriz ? w : w + 20;
-    const floorH = isHoriz ? h + 20 : h;
-    // Floor strip at doorway — brighter
-    const floor = this.scene.add.rectangle(x + w / 2, y + h / 2, floorW, floorH, 0x1a2a22, 0.95).setDepth(-2);
+    const mx = x + w / 2;
+    const my = y + h / 2;
+
+    // ── Floor plate ──────────────────────────────────────────────
+    const floorW = isHoriz ? w : w + 24;
+    const floorH = isHoriz ? h + 24 : h;
+    const floor = this.scene.add.rectangle(mx, my, floorW, floorH, 0x0e1e18, 1).setDepth(-2.5);
     this.decorations.push(floor);
-    // Hazard stripes
-    const stripe = this.scene.add.rectangle(x + w / 2, y + h / 2, floorW, floorH, 0xffaa00, 0.25).setDepth(-1.5);
-    this.decorations.push(stripe);
-    // Bright threshold lights on each side
-    const lightColor = 0x44ff88;
+
+    // ── Holographic energy barrier ───────────────────────────────
+    const barrierGfx = this.scene.add.graphics().setDepth(9);
     if (isHoriz) {
-      const l1 = this.scene.add.circle(x + 6, y + h / 2, 4, lightColor, 0.9).setDepth(11);
-      const l2 = this.scene.add.circle(x + w - 6, y + h / 2, 4, lightColor, 0.9).setDepth(11);
-      this.decorations.push(l1, l2);
-      // Arrow indicator pointing through door
-      const arrow = this.scene.add.text(x + w / 2, y + h / 2, "▼", {
-        fontFamily: "monospace", fontSize: "14px", color: "#44ff88",
-      }).setOrigin(0.5).setDepth(12).setAlpha(0.6);
-      this.decorations.push(arrow);
+      // Full-width hologram curtain
+      barrierGfx.fillStyle(0x00ffcc, 0.04);
+      barrierGfx.fillRect(x, y - 2, w, h + 4);
+      // Two solid edge pillars
+      barrierGfx.fillStyle(0x003322, 0.95);
+      barrierGfx.fillRect(x - 4, y - 6, 12, h + 12);
+      barrierGfx.fillRect(x + w - 8, y - 6, 12, h + 12);
+      // Energy stripe across centre
+      barrierGfx.lineStyle(2, 0x00ffcc, 0.55);
+      barrierGfx.lineBetween(x, my, x + w, my);
+      barrierGfx.strokePath();
+      // Hazard chevrons
+      barrierGfx.lineStyle(1, 0xffcc00, 0.35);
+      for (let cx2 = x + 20; cx2 < x + w - 20; cx2 += 40) {
+        barrierGfx.moveTo(cx2, my - 8); barrierGfx.lineTo(cx2 + 12, my);
+        barrierGfx.lineTo(cx2, my + 8);
+      }
+      barrierGfx.strokePath();
     } else {
-      const l1 = this.scene.add.circle(x + w / 2, y + 6, 4, lightColor, 0.9).setDepth(11);
-      const l2 = this.scene.add.circle(x + w / 2, y + h - 6, 4, lightColor, 0.9).setDepth(11);
-      this.decorations.push(l1, l2);
-      const arrow = this.scene.add.text(x + w / 2, y + h / 2, "▶", {
-        fontFamily: "monospace", fontSize: "14px", color: "#44ff88",
-      }).setOrigin(0.5).setDepth(12).setAlpha(0.6);
-      this.decorations.push(arrow);
+      barrierGfx.fillStyle(0x00ffcc, 0.04);
+      barrierGfx.fillRect(x - 2, y, w + 4, h);
+      barrierGfx.fillStyle(0x003322, 0.95);
+      barrierGfx.fillRect(x - 6, y - 4, w + 12, 12);
+      barrierGfx.fillRect(x - 6, y + h - 8, w + 12, 12);
+      barrierGfx.lineStyle(2, 0x00ffcc, 0.55);
+      barrierGfx.lineBetween(mx, y, mx, y + h);
+      barrierGfx.strokePath();
+      barrierGfx.lineStyle(1, 0xffcc00, 0.35);
+      for (let cy2 = y + 20; cy2 < y + h - 20; cy2 += 40) {
+        barrierGfx.moveTo(mx - 8, cy2); barrierGfx.lineTo(mx, cy2 + 12);
+        barrierGfx.lineTo(mx + 8, cy2);
+      }
+      barrierGfx.strokePath();
     }
+    this.decorations.push(barrierGfx);
+
+    // ── Corner emitter nodes ─────────────────────────────────────
+    const nodeColor = 0x00ffcc;
+    const nodePositions = isHoriz
+      ? [[x + 2, my], [x + w - 2, my]] as [number,number][]
+      : [[mx, y + 2], [mx, y + h - 2]] as [number,number][];
+    for (const [nx, ny] of nodePositions) {
+      const node = this.scene.add.circle(nx, ny, 5, nodeColor, 0.9).setDepth(12);
+      const halo = this.scene.add.circle(nx, ny, 14, nodeColor, 0.18)
+        .setDepth(11).setBlendMode(Phaser.BlendModes.ADD);
+      this.decorations.push(node, halo);
+      this.scene.tweens.add({
+        targets: [node, halo],
+        alpha: { from: 0.5, to: 1.0 },
+        duration: Phaser.Math.Between(600, 1100),
+        yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+      });
+    }
+
+    // ── Scanline shimmer (tween alpha) ───────────────────────────
+    this.scene.tweens.add({
+      targets: barrierGfx,
+      alpha: { from: 0.6, to: 1.0 },
+      duration: 800,
+      yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+    });
   }
 
   // ─── Wall Lights ──────────────────────────────────────────
@@ -1333,42 +1378,157 @@ export class MapObstacles {
       });
     }
 
-    // ── REACTOR CORE: fixed big reactor machine against the top wall ─────────
+    // ── REACTOR CORE: the heart of the facility ───────────────────────────────
     if (theme === "power") {
       const reactX = roomCx;
-      const reactY = ry + 90;  // anchored to top wall — leaves center open for combat
+      const reactY = ry + 90;
       this.reactorMachinePos = { x: reactX, y: reactY };
-      // Draw big reactor machine marker
-      const rGfx = this.scene.add.graphics().setDepth(4);
-      rGfx.fillStyle(0x001a00, 0.95);
-      rGfx.fillCircle(reactX, reactY, 55);
-      rGfx.lineStyle(4, 0x00ff88, 0.9);
-      rGfx.strokeCircle(reactX, reactY, 55);
-      rGfx.lineStyle(2, 0x00ff44, 0.5);
-      rGfx.strokeCircle(reactX, reactY, 40);
-      rGfx.lineStyle(2, 0x00ff44, 0.3);
-      rGfx.strokeCircle(reactX, reactY, 28);
-      // Spoke lines
-      for (let s = 0; s < 8; s++) {
-        const a = (s / 8) * Math.PI * 2;
-        rGfx.lineStyle(1, 0x00ff88, 0.35);
-        rGfx.moveTo(reactX + Math.cos(a) * 20, reactY + Math.sin(a) * 20);
-        rGfx.lineTo(reactX + Math.cos(a) * 50, reactY + Math.sin(a) * 50);
-      }
-      rGfx.strokePath();
-      rGfx.fillStyle(0x00ff88, 0.6);
-      rGfx.fillCircle(reactX, reactY, 10);
-      this.decorations.push(rGfx);
-      const reactLabel = this.scene.add.text(reactX, reactY - 70, "⚡ REACTOR CORE  [ DEFEND ]", {
-        fontFamily: "monospace", fontSize: "11px", color: "#00ff88",
-        stroke: "#000", strokeThickness: 2,
-      }).setOrigin(0.5).setDepth(15);
-      this.decorations.push(reactLabel);
+
+      // ── Wide ambient floor emission ──────────────────────────────────────────
+      const rFloorLight = this.scene.add.graphics().setDepth(3).setBlendMode(Phaser.BlendModes.ADD);
+      rFloorLight.fillStyle(0x00ff88, 0.04);
+      rFloorLight.fillCircle(reactX, reactY, 220);
+      rFloorLight.fillStyle(0x00cc66, 0.06);
+      rFloorLight.fillCircle(reactX, reactY, 140);
+      rFloorLight.fillStyle(0x00ff88, 0.08);
+      rFloorLight.fillCircle(reactX, reactY, 90);
+      this.decorations.push(rFloorLight);
       this.scene.tweens.add({
-        targets: rGfx,
-        alpha: { from: 0.7, to: 1 },
-        duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+        targets: rFloorLight,
+        alpha: { from: 0.55, to: 1.0 },
+        duration: 2200, yoyo: true, repeat: -1, ease: "Sine.easeInOut",
       });
+
+      // ── Static base structure ────────────────────────────────────────────────
+      const rBase = this.scene.add.graphics().setDepth(4);
+      // Outer containment hull
+      rBase.fillStyle(0x001808, 0.98);
+      rBase.fillCircle(reactX, reactY, 74);
+      rBase.fillStyle(0x000f04, 0.98);
+      rBase.fillCircle(reactX, reactY, 68);
+      // Containment rings
+      rBase.lineStyle(4, 0x00ff88, 0.95);
+      rBase.strokeCircle(reactX, reactY, 74);
+      rBase.lineStyle(3, 0x00dd66, 0.75);
+      rBase.strokeCircle(reactX, reactY, 62);
+      rBase.lineStyle(2, 0x00bb44, 0.55);
+      rBase.strokeCircle(reactX, reactY, 50);
+      rBase.lineStyle(1, 0x008833, 0.40);
+      rBase.strokeCircle(reactX, reactY, 38);
+      rBase.lineStyle(1, 0x006622, 0.28);
+      rBase.strokeCircle(reactX, reactY, 26);
+      // 12 energy spokes
+      for (let s = 0; s < 12; s++) {
+        const a = (s / 12) * Math.PI * 2;
+        const bright = s % 3 === 0 ? 0.65 : s % 2 === 0 ? 0.40 : 0.25;
+        const w = s % 3 === 0 ? 2 : 1;
+        rBase.lineStyle(w, 0x00ff88, bright);
+        rBase.beginPath();
+        rBase.moveTo(reactX + Math.cos(a) * 22, reactY + Math.sin(a) * 22);
+        rBase.lineTo(reactX + Math.cos(a) * 68, reactY + Math.sin(a) * 68);
+        rBase.strokePath();
+      }
+      // Outer tick marks (16 ticks on hull)
+      for (let t = 0; t < 16; t++) {
+        const a = (t / 16) * Math.PI * 2;
+        rBase.lineStyle(1, 0x00ff88, 0.50);
+        rBase.beginPath();
+        rBase.moveTo(reactX + Math.cos(a) * 70, reactY + Math.sin(a) * 70);
+        rBase.lineTo(reactX + Math.cos(a) * 78, reactY + Math.sin(a) * 78);
+        rBase.strokePath();
+      }
+      // Core
+      rBase.fillStyle(0x44ffaa, 0.85);
+      rBase.fillCircle(reactX, reactY, 15);
+      rBase.fillStyle(0xaaffdd, 0.70);
+      rBase.fillCircle(reactX - 4, reactY - 4, 6);
+      this.decorations.push(rBase);
+
+      // ── Pulsing core glow ────────────────────────────────────────────────────
+      const coreGlow = this.scene.add.circle(reactX, reactY, 22, 0x00ff88, 0.45)
+        .setDepth(5).setBlendMode(Phaser.BlendModes.ADD);
+      this.scene.tweens.add({
+        targets: coreGlow,
+        alpha: { from: 0.20, to: 0.80 },
+        scaleX: { from: 0.75, to: 1.40 },
+        scaleY: { from: 0.75, to: 1.40 },
+        duration: 1100, yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+      });
+      this.decorations.push(coreGlow);
+
+      // ── Rotating outer ring (animated via timer) ─────────────────────────────
+      const rotRingGfx = this.scene.add.graphics().setDepth(5);
+      let rotAngle = 0;
+      const rotTimer = this.scene.time.addEvent({
+        delay: 50, loop: true,
+        callback: () => {
+          if (!rotRingGfx.scene) { rotTimer.destroy(); return; }
+          rotRingGfx.clear();
+          rotAngle += 0.018;
+          // 6 arc segments on the outer ring (alternating visible/gap)
+          for (let t = 0; t < 6; t++) {
+            const a = rotAngle + (t / 6) * Math.PI * 2;
+            const endA = a + (Math.PI / 6) * 0.7;
+            rotRingGfx.lineStyle(3, 0x44ffbb, 0.70);
+            rotRingGfx.beginPath();
+            for (let i = 0; i <= 8; i++) {
+              const pa = a + (endA - a) * (i / 8);
+              const px = reactX + Math.cos(pa) * 80;
+              const py = reactY + Math.sin(pa) * 80;
+              if (i === 0) rotRingGfx.moveTo(px, py);
+              else rotRingGfx.lineTo(px, py);
+            }
+            rotRingGfx.strokePath();
+          }
+          // 3 counter-rotating energy nodes
+          const nodeAngle = -rotAngle * 0.55;
+          for (let t = 0; t < 3; t++) {
+            const a = nodeAngle + (t / 3) * Math.PI * 2;
+            rotRingGfx.fillStyle(0x00ffaa, 0.90);
+            rotRingGfx.fillCircle(
+              reactX + Math.cos(a) * 58,
+              reactY + Math.sin(a) * 58,
+              4,
+            );
+          }
+        },
+      });
+      this._propLoopTimers.push(rotTimer);
+      this.decorations.push(rotRingGfx);
+
+      // ── Vertical energy column (upward beam) ─────────────────────────────────
+      for (let h = 0; h < 5; h++) {
+        const beamY = reactY - 30 - h * 28;
+        const beamAlpha = 0.45 - h * 0.07;
+        const beam = this.scene.add.rectangle(reactX, beamY, 5, 24, 0x00ff88, beamAlpha)
+          .setDepth(5).setBlendMode(Phaser.BlendModes.ADD);
+        this.scene.tweens.add({
+          targets: beam,
+          alpha: { from: beamAlpha * 0.3, to: beamAlpha },
+          y: { from: beamY + 4, to: beamY - 4 },
+          duration: 800 + h * 220, yoyo: true, repeat: -1,
+          ease: "Sine.easeInOut", delay: h * 160,
+        });
+        this.decorations.push(beam);
+      }
+
+      // ── Holographic status display ────────────────────────────────────────────
+      const reactLabel = this.scene.add.text(reactX, reactY + 96, "⚡  REACTOR CORE  ⚡", {
+        fontFamily: "monospace", fontSize: "12px", color: "#00ff88",
+        stroke: "#000000", strokeThickness: 2,
+        shadow: { offsetX: 0, offsetY: 0, color: "#00ff88", blur: 10, fill: true },
+      }).setOrigin(0.5).setDepth(15).setAlpha(0.85);
+      const defendLabel = this.scene.add.text(reactX, reactY + 112, "[ DEFEND ]", {
+        fontFamily: "monospace", fontSize: "10px", color: "#44dd88",
+        stroke: "#000000", strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(15).setAlpha(0.65);
+      this.scene.tweens.add({
+        targets: [reactLabel, defendLabel],
+        alpha: { from: 0.35, to: 0.90 },
+        duration: 1100, yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+      });
+      this.decorations.push(reactLabel, defendLabel);
+
       // Damage overlay — drawn each frame by MainScene based on reactor HP
       this.reactorDamageOverlay = this.scene.add.graphics().setDepth(5);
       this.decorations.push(this.reactorDamageOverlay);
@@ -1379,7 +1539,6 @@ export class MapObstacles {
       const prop = PROPS[propName];
       if (!prop) continue;
 
-      let placed = false;
       for (let attempt = 0; attempt < 40; attempt++) {
         // Wall-zone biased placement: deeper band keeps combat centre open.
         const wallDepth = Math.min(115, Math.floor(rw / 3.5), Math.floor(rh / 3));
@@ -1435,7 +1594,6 @@ export class MapObstacles {
         if (this.isBlocked(pcx, pcy, checkR)) continue;
 
         this._placeProp(propName as ObstacleKind, px, py, prop);
-        placed = true;
         break;
       }
       // If can't place, skip silently
@@ -1443,10 +1601,13 @@ export class MapObstacles {
   }
 
   private _placeProp(kind: ObstacleKind, x: number, y: number, prop: PropDef): void {
-    let sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Rectangle;
-    if (this.scene.textures.exists(prop.tex)) {
+    let sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Rectangle | Phaser.GameObjects.TileSprite;
+    if (kind === "conveyor_belt" && this.scene.textures.exists(prop.tex)) {
+      sprite = this.scene.add.tileSprite(x + prop.w / 2, y + prop.h / 2, prop.w, prop.h, prop.tex)
+        .setDepth(10);
+    } else if (this.scene.textures.exists(prop.tex)) {
       sprite = this.scene.add.sprite(x + prop.w / 2, y + prop.h / 2, prop.tex)
-        .setDisplaySize(prop.w, prop.h)  // ← force visual size to match prop dimensions
+        .setDisplaySize(prop.w, prop.h)
         .setDepth(10);
     } else {
       const colors: Record<string, number> = {
@@ -1679,18 +1840,6 @@ export class MapObstacles {
           });
         }
 
-        // ── 6. ROOM NAME TAG ──────────────────────────────────────────
-        const nameText = ROOM_DISPLAY_NAMES[theme] ?? theme.toUpperCase();
-        const roomLabel = this.scene.add.text(mx, ry + WALL_T + 38, nameText, {
-          fontSize: "13px",
-          color: '#' + colors.accent.toString(16).padStart(6, '0'),
-          fontFamily: "monospace",
-          fontStyle: "bold",
-          stroke: "#000000",
-          strokeThickness: 4,
-        }).setOrigin(0.5, 0.5).setDepth(-1).setAlpha(0.80);
-        this.decorations.push(roomLabel);
-
         // ── 7. THEME-SPECIFIC LARGE FLOOR DECAL ──────────────────────
         const tGfx = this.scene.add.graphics().setDepth(-3);
 
@@ -1903,10 +2052,51 @@ export class MapObstacles {
           bioGfx.strokePath();
           this.decorations.push(bioGfx);
         } else if (theme === "power") {
-          const sx = rx + Phaser.Math.Between(0, rw - 96);
-          const sy = ry + Phaser.Math.Between(0, rh - 8);
-          const stripe = this.scene.add.rectangle(sx + 48, sy + 4, 96, 8, 0x00ffcc, 0.25).setDepth(2);
-          this.decorations.push(stripe);
+          // ── Reactor room: hazard striping on floor around reactor zone ───────────
+          const rMachineX = rx + rw / 2;
+          const rMachineY = ry + 90;
+          // Hazard stripe ring around reactor
+          const hGfx = this.scene.add.graphics().setDepth(3.2);
+          for (let t = 0; t < 12; t++) {
+            const a = (t / 12) * Math.PI * 2;
+            const r1 = 90; const r2 = 110;
+            hGfx.lineStyle(3, t % 2 === 0 ? 0x00ff44 : 0x004422, 0.40);
+            hGfx.beginPath();
+            const a2 = ((t + 0.85) / 12) * Math.PI * 2;
+            for (let s = 0; s <= 6; s++) {
+              const aa = a + (a2 - a) * (s / 6);
+              const px1 = rMachineX + Math.cos(aa) * r1;
+              const py1 = rMachineY + Math.sin(aa) * r1;
+              if (s === 0) hGfx.moveTo(px1, py1); else hGfx.lineTo(px1, py1);
+            }
+            for (let s = 6; s >= 0; s--) {
+              const aa = a + (a2 - a) * (s / 6);
+              const px2 = rMachineX + Math.cos(aa) * r2;
+              const py2 = rMachineY + Math.sin(aa) * r2;
+              hGfx.lineTo(px2, py2);
+            }
+            hGfx.closePath();
+            hGfx.strokePath();
+          }
+          // 4 floor warning light pillars at corners of reactor room
+          const pillarPositions = [
+            [rMachineX - 140, rMachineY + 120],
+            [rMachineX + 140, rMachineY + 120],
+            [rMachineX - 140, ry + rh - 80],
+            [rMachineX + 140, ry + rh - 80],
+          ];
+          for (const [px, py] of pillarPositions) {
+            const pillarGlow = this.scene.add.circle(px, py, 8, 0xff4400, 0.7)
+              .setDepth(6).setBlendMode(Phaser.BlendModes.ADD);
+            this.scene.tweens.add({
+              targets: pillarGlow,
+              alpha: { from: 0.2, to: 0.9 },
+              duration: 600 + Math.random() * 300, yoyo: true, repeat: -1,
+              ease: "Sine.easeInOut",
+            });
+            this.decorations.push(pillarGlow);
+          }
+          this.decorations.push(hGfx);
         } else if (theme === "armory") {
           // Blast-damage scorch circles
           const bx = rx + Phaser.Math.Between(60, rw - 60);
@@ -1940,6 +2130,89 @@ export class MapObstacles {
           laserGfx.strokePath();
           this.decorations.push(laserGfx);
         }
+
+        // ── Ceiling overhead lights (3–4 per room, along top edge band) ──
+        const colors = FLOOR_COLORS[theme];
+        const lightCount = 3 + (c % 2);  // deterministic: 3 or 4
+        const lightSpacingX = rw / (lightCount + 1);
+        for (let li = 1; li <= lightCount; li++) {
+          const lx = rx + li * lightSpacingX;
+          const ly = ry + 28;
+          // Ceiling mount bar
+          const bar = this.scene.add.rectangle(lx, ly - 4, 18, 6, 0x2a3040, 0.9).setDepth(12);
+          this.decorations.push(bar);
+          // Light cone glow
+          const cone = this.scene.add.triangle(
+            lx, ly + 4,   // pivot
+            -30, 70, 30, 70, 0, 0,
+            colors.accent, 0.06,
+          ).setDepth(-0.5).setBlendMode(Phaser.BlendModes.ADD);
+          this.decorations.push(cone);
+          // Bulb
+          const bulb = this.scene.add.circle(lx, ly + 4, 4, colors.accent, 0.9).setDepth(12);
+          const halo = this.scene.add.circle(lx, ly + 4, 20, colors.accent, 0.12)
+            .setDepth(11).setBlendMode(Phaser.BlendModes.ADD);
+          this.decorations.push(bulb, halo);
+          this.scene.tweens.add({
+            targets: [halo, cone],
+            alpha: { from: 0.04, to: 0.18 },
+            duration: Phaser.Math.Between(2000, 4000),
+            yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+            delay: li * 280,
+          });
+        }
+
+        // ── Vent grilles (1–2 per room, on side walls) ───────────────────
+        const ventCount = 1 + (r % 2);
+        for (let vi = 0; vi < ventCount; vi++) {
+          // Alternate left/right wall
+          const onLeft = vi % 2 === 0;
+          const vx = onLeft ? rx + 4 : rx + rw - 52;
+          const vy = ry + 80 + vi * 220;
+          const ventGfx = this.scene.add.graphics().setDepth(11);
+          ventGfx.fillStyle(0x1a2430, 0.9);
+          ventGfx.fillRect(vx, vy, 48, 36);
+          // Grate slats
+          ventGfx.lineStyle(2, 0x2a3848, 1);
+          for (let sl = 0; sl < 4; sl++) {
+            ventGfx.moveTo(vx + 4, vy + 6 + sl * 7);
+            ventGfx.lineTo(vx + 44, vy + 6 + sl * 7);
+          }
+          ventGfx.strokePath();
+          // Accent edge
+          ventGfx.lineStyle(1, colors.accent, 0.4);
+          ventGfx.strokeRect(vx, vy, 48, 36);
+          this.decorations.push(ventGfx);
+          // Air flow shimmer
+          const airShimmer = this.scene.add.rectangle(
+            vx + (onLeft ? 60 : -12), vy + 18, onLeft ? 24 : 24, 4, colors.accent, 0.08,
+          ).setDepth(3).setBlendMode(Phaser.BlendModes.ADD);
+          this.decorations.push(airShimmer);
+          this.scene.tweens.add({
+            targets: airShimmer,
+            alpha: { from: 0.02, to: 0.12 },
+            x: airShimmer.x + (onLeft ? 20 : -20),
+            duration: Phaser.Math.Between(1200, 2000),
+            yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+          });
+        }
+
+        // ── Danger stripes on floor near doorways (bottom wall) ──────────
+        const stripeGfx = this.scene.add.graphics().setDepth(-1.2);
+        const stripeColor = colors.accent;
+        const stripeW = 14;
+        // Bottom edge stripe pattern (alternating solid/transparent)
+        for (let sx = rx + WALL_T; sx < rx + rw; sx += stripeW * 2) {
+          stripeGfx.fillStyle(stripeColor, 0.07);
+          stripeGfx.fillRect(sx, ry + rh - 20, stripeW, 20);
+        }
+        // Top edge too
+        for (let sx = rx + WALL_T; sx < rx + rw; sx += stripeW * 2) {
+          stripeGfx.fillStyle(stripeColor, 0.05);
+          stripeGfx.fillRect(sx, ry, stripeW, 16);
+        }
+        stripeGfx.fillPath();
+        this.decorations.push(stripeGfx);
       }
     }
   }
@@ -1948,6 +2221,7 @@ export class MapObstacles {
 
   private _buildRoomPhysicsZones(active: boolean[][], themes: RoomTheme[][]): void {
     this.roomPhysicsZones = [];
+    this._zoneGrid.clear();
     const rows = active.length;
     const cols = rows > 0 ? active[0].length : 0;
     for (let r = 0; r < rows; r++) {
@@ -1961,7 +2235,6 @@ export class MapObstacles {
           theme,
           ...base,
         };
-        // Power room: gravity pull toward full-cell center
         if (theme === "power") {
           zone.gravityPull = {
             x: c * CELL_W + CELL_W / 2,
@@ -1970,6 +2243,7 @@ export class MapObstacles {
           };
         }
         this.roomPhysicsZones.push(zone);
+        this._zoneGrid.set(c * 100 + r, zone);
       }
     }
   }
@@ -2051,7 +2325,7 @@ export class MapObstacles {
             const sweepLine = this.scene.add.graphics().setDepth(-1.5);
             this.decorations.push(sweepLine);
             let sweepAngle = 0;
-            this.scene.time.addEvent({
+            this._propLoopTimers.push(this.scene.time.addEvent({
               delay: 50, loop: true,
               callback: () => {
                 if (!sweepLine.scene) return;
@@ -2075,7 +2349,7 @@ export class MapObstacles {
                 sweepLine.strokePath();
                 sweepAngle += 0.05;
               },
-            });
+            }));
             break;
           }
           case "maintenance": {
@@ -2113,7 +2387,7 @@ export class MapObstacles {
             const arSweep = this.scene.add.graphics().setDepth(-1.5);
             this.decorations.push(arSweep);
             let arAngle = 0;
-            this.scene.time.addEvent({
+            this._propLoopTimers.push(this.scene.time.addEvent({
               delay: 40, loop: true,
               callback: () => {
                 if (!arSweep.scene) return;
@@ -2134,7 +2408,7 @@ export class MapObstacles {
                 arSweep.strokePath();
                 arAngle += 0.07;
               },
-            });
+            }));
             break;
           }
           case "quarantine": {
@@ -2181,6 +2455,128 @@ export class MapObstacles {
         }
       }
     }
+
+    // ── Prop-level animations — scan all obstacles in this scene ──────────
+    // Run once after _populateRooms has placed everything.
+    this._animateActiveProps();
+  }
+
+  /** Add per-prop animations for conveyor belts, tesla coils, data cores, hologram tables. */
+  private _animateActiveProps(): void {
+    for (const obs of this.obstacles) {
+      if (obs.hp <= 0 || obs.kind === "wall") continue;
+      const cx = obs.x + obs.w / 2;
+      const cy = obs.y + obs.h / 2;
+
+      switch (obs.kind) {
+        case "conveyor_belt": {
+          // Scroll the tileSprite so arrows animate
+          if (obs.sprite instanceof Phaser.GameObjects.TileSprite) {
+            const belt = obs.sprite;
+            const dir = obs.beltDir ?? { x: 1, y: 0 };
+            const ev = this.scene.time.addEvent({
+              delay: 40, loop: true,
+              callback: () => {
+                if (!belt.scene || !belt.active) return;
+                belt.tilePositionX += dir.x * 1.5;
+                belt.tilePositionY += dir.y * 1.5;
+              },
+            });
+            this._propLoopTimers.push(ev);
+          }
+          break;
+        }
+        case "data_core": {
+          // Alpha flicker — simulates internal energy activity
+          if (obs.sprite?.active) {
+            this.scene.tweens.add({
+              targets: obs.sprite,
+              alpha: { from: 0.75, to: 1.0 },
+              duration: Phaser.Math.Between(300, 600),
+              yoyo: true, repeat: -1,
+              ease: "Sine.easeInOut",
+              delay: Phaser.Math.Between(0, 800),
+            });
+          }
+          // Extra outer glow pulse
+          const dcGlow = this.scene.add.circle(cx, cy, obs.w * 0.6, 0x00ffff, 0.08)
+            .setDepth(3).setBlendMode(Phaser.BlendModes.ADD);
+          this.decorations.push(dcGlow);
+          this.scene.tweens.add({
+            targets: dcGlow,
+            alpha: { from: 0.04, to: 0.22 },
+            scaleX: { from: 0.85, to: 1.15 }, scaleY: { from: 0.85, to: 1.15 },
+            duration: Phaser.Math.Between(900, 1500),
+            yoyo: true, repeat: -1,
+          });
+          break;
+        }
+        case "hologram_table": {
+          // Rotating scan plane drawn over the table
+          const htGfx = this.scene.add.graphics().setDepth(obs.sprite ? 11 : 3);
+          this.decorations.push(htGfx);
+          let htAngle = 0;
+          const htEv = this.scene.time.addEvent({
+            delay: 50, loop: true,
+            callback: () => {
+              if (!htGfx.scene || !htGfx.active) return;
+              htGfx.clear();
+              const scanY = cy - obs.h * 0.25 + Math.sin(htAngle) * obs.h * 0.22;
+              htGfx.lineStyle(1, 0x00ffcc, 0.45);
+              htGfx.lineBetween(obs.x + 6, scanY, obs.x + obs.w - 6, scanY);
+              htGfx.strokePath();
+              htAngle += 0.07;
+            },
+          });
+          this._propLoopTimers.push(htEv);
+          // Overall glow tween
+          if (obs.sprite?.active) {
+            this.scene.tweens.add({
+              targets: obs.sprite,
+              alpha: { from: 0.8, to: 1.0 },
+              duration: Phaser.Math.Between(1200, 2200),
+              yoyo: true, repeat: -1,
+            });
+          }
+          break;
+        }
+        case "tesla_coil": {
+          // Periodic spark arc to nearest decoration point
+          const sparkGfx = this.scene.add.graphics()
+            .setDepth(13).setBlendMode(Phaser.BlendModes.ADD);
+          this.decorations.push(sparkGfx);
+          const tipY = cy - obs.h * 0.35;
+          const fireSpark = () => {
+            if (!sparkGfx.scene || !sparkGfx.active) return;
+            sparkGfx.clear();
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 30 + Math.random() * 40;
+            const ex = cx + Math.cos(angle) * dist;
+            const ey = tipY + Math.sin(angle) * dist;
+            sparkGfx.lineStyle(2, 0xaaccff, 0.9);
+            sparkGfx.lineBetween(cx, tipY, ex, ey);
+            sparkGfx.lineStyle(1, 0x4488ff, 0.5);
+            sparkGfx.lineBetween(cx, tipY, ex, ey);
+            sparkGfx.strokePath();
+            // Electric particle burst at tip
+            ParticleVFX.hitSparks(this.scene, cx, tipY, 0x88ccff, 6);
+            // Micro screen shake + audio
+            Juice.screenShake(this.scene, 0.0012, 80);
+            AudioManager.instance.hit();
+            this.scene.time.delayedCall(120, () => { if (sparkGfx.scene) sparkGfx.clear(); });
+          };
+          const tsEv = this.scene.time.addEvent({
+            delay: Phaser.Math.Between(1800, 3500),
+            loop: true,
+            callback: fireSpark,
+          });
+          this._propLoopTimers.push(tsEv);
+          break;
+        }
+        default:
+          break;
+      }
+    }
   }
 
   // ─── Special Layouts ─────────────────────────────────────
@@ -2193,8 +2589,15 @@ export class MapObstacles {
     const arenaR = 520;
 
     // ── Arena floor ──────────────────────────────────────────
+    // Tiled floor using baked boss texture
+    const arenaFloorSize = (arenaR + 40) * 2;
+    if (this.scene.textures.exists("floor_boss")) {
+      const bossFloor = this.scene.add.tileSprite(cx, cy, arenaFloorSize, arenaFloorSize, "floor_boss")
+        .setDepth(-4);
+      this.decorations.push(bossFloor);
+    }
     const floorGfx = this.scene.add.graphics().setDepth(-3);
-    floorGfx.fillStyle(0x1a0010, 1);
+    floorGfx.fillStyle(0x1a0010, 0.7);
     floorGfx.fillCircle(cx, cy, arenaR + 30);
     this.decorations.push(floorGfx);
 
@@ -2282,8 +2685,44 @@ export class MapObstacles {
       vortexAngle += 0.04;
     }});
 
+    // ── Warning light strips along arena boundary ─────────────────────────────
+    const warnStripGfx = this.scene.add.graphics().setDepth(-0.5);
+    let warnStripPhase = 0;
+    const warnStripTimer = this.scene.time.addEvent({
+      delay: 80, loop: true,
+      callback: () => {
+        if (!warnStripGfx.scene) { warnStripTimer.destroy(); return; }
+        warnStripGfx.clear();
+        warnStripPhase += 0.12;
+        // Pulsing red segments along the outer arena ring
+        for (let t = 0; t < 24; t++) {
+          const a = warnStripPhase + (t / 24) * Math.PI * 2;
+          const pulse = 0.5 + 0.5 * Math.sin(warnStripPhase * 2 + t * 0.5);
+          const segAlpha = t % 4 === 0 ? pulse * 0.6 : pulse * 0.15;
+          warnStripGfx.lineStyle(3, 0xff2200, segAlpha);
+          const a2 = a + (Math.PI / 24) * 0.6;
+          warnStripGfx.beginPath();
+          for (let s = 0; s <= 4; s++) {
+            const aa = a + (a2 - a) * (s / 4);
+            const wx = cx + Math.cos(aa) * (arenaR + 18);
+            const wy = cy + Math.sin(aa) * (arenaR + 18);
+            if (s === 0) warnStripGfx.moveTo(wx, wy); else warnStripGfx.lineTo(wx, wy);
+          }
+          warnStripGfx.strokePath();
+        }
+      },
+    });
+    this._propLoopTimers.push(warnStripTimer);
+    this.decorations.push(warnStripGfx);
+
     // ── Arena boundary walls ────────────────────────────────
     const aW = 900; const aH = 500;
+    this.bossArenaBounds = {
+      minX: cx - aW,
+      maxX: cx + aW,
+      minY: cy - aH,
+      maxY: cy + aH,
+    };
     this._placeWall(cx - aW - WALL_T, cy - aH - WALL_T, aW * 2 + WALL_T * 2, WALL_T); // top
     this._placeWall(cx - aW - WALL_T, cy + aH,          aW * 2 + WALL_T * 2, WALL_T); // bottom
     this._placeWall(cx - aW - WALL_T, cy - aH - WALL_T, WALL_T, aH * 2 + WALL_T * 2); // left
@@ -2312,6 +2751,97 @@ export class MapObstacles {
       this._placeProp("barrel", cx + ox + 44, cy + oy - 24, PROPS.barrel);
       this._placeProp("fuel_cell", cx + ox - 60, cy + oy - 26, PROPS.fuel_cell);
     }
+
+    // ── Boss core centrepiece (decorative, no collision) ─────────────────
+    if (this.scene.textures.exists("env_boss_core")) {
+      const bossCore = this.scene.add.sprite(cx, cy, "env_boss_core")
+        .setDepth(1).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.7);
+      this.decorations.push(bossCore);
+      // Slow rotation via tween
+      this.scene.tweens.add({
+        targets: bossCore,
+        angle: 360,
+        duration: 12000,
+        repeat: -1,
+        ease: "Linear",
+      });
+      // Pulse alpha
+      this.scene.tweens.add({
+        targets: bossCore,
+        alpha: { from: 0.4, to: 0.85 },
+        duration: 1400,
+        yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+      });
+    }
+
+    // ── 4 boss conduits forming a cross ─────────────────────────────────
+    if (this.scene.textures.exists("env_boss_conduit")) {
+      for (const [ox, oy, rot] of [
+        [0, -260, 0], [0, 260, 0], [-340, 0, 90], [340, 0, 90],
+      ] as [number,number,number][]) {
+        const conduit = this.scene.add.sprite(cx + ox, cy + oy, "env_boss_conduit")
+          .setDepth(3).setAngle(rot).setAlpha(0.85);
+        this.decorations.push(conduit);
+        // Energy pulse
+        this.scene.tweens.add({
+          targets: conduit,
+          alpha: { from: 0.55, to: 1.0 },
+          duration: Phaser.Math.Between(700, 1200),
+          yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+        });
+      }
+    }
+
+    // ── 4 boss terminals at cardinal mid-walls ───────────────────────────
+    if (this.scene.textures.exists("env_boss_terminal")) {
+      for (const [ox, oy] of [[0,-420],[0,420],[-760,0],[760,0]] as [number,number][]) {
+        const terminal = this.scene.add.sprite(cx + ox, cy + oy, "env_boss_terminal")
+          .setDepth(4);
+        this.decorations.push(terminal);
+        this.scene.tweens.add({
+          targets: terminal,
+          alpha: { from: 0.7, to: 1.0 },
+          duration: Phaser.Math.Between(500, 900),
+          yoyo: true, repeat: -1,
+        });
+      }
+    }
+
+    // ── Warning light ring — 8 red blinkers around the perimeter ────────
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const lx = cx + Math.cos(a) * (arenaR - 30);
+      const ly = cy + Math.sin(a) * (arenaR - 30);
+      const light = this.scene.add.circle(lx, ly, 6, 0xff0044, 0.9).setDepth(5);
+      const halo  = this.scene.add.circle(lx, ly, 18, 0xff0044, 0.25)
+        .setDepth(4).setBlendMode(Phaser.BlendModes.ADD);
+      this.decorations.push(light, halo);
+      this.scene.tweens.add({
+        targets: [light, halo],
+        alpha: { from: 0.1, to: 0.95 },
+        duration: 400 + (i % 3) * 150,
+        yoyo: true, repeat: -1,
+        delay: (i * 180) % 700,
+      });
+    }
+
+    // ── Energy conduit floor lines from corners to centre ────────────────
+    const conduitGfx = this.scene.add.graphics().setDepth(2);
+    this.decorations.push(conduitGfx);
+    for (const [ox, oy] of [[-600,-380],[600,-380],[-600,380],[600,380]] as [number,number][]) {
+      conduitGfx.lineStyle(3, 0xff0066, 0.3);
+      conduitGfx.lineBetween(cx + ox, cy + oy, cx, cy);
+      // Thinner overlay
+      conduitGfx.lineStyle(1, 0xff4488, 0.5);
+      conduitGfx.lineBetween(cx + ox, cy + oy, cx, cy);
+    }
+    conduitGfx.strokePath();
+    this.scene.tweens.add({
+      targets: conduitGfx,
+      alpha: { from: 0.5, to: 1.0 },
+      duration: 1100,
+      yoyo: true, repeat: -1, ease: "Sine.easeInOut",
+    });
 
     // ── FALLING DEBRIS RAIN (purely visual — tweened rectangles) ───────────
     const debrisColors = [0xff2200, 0xaa4400, 0x884422, 0xff6600, 0xff0066];
@@ -2342,13 +2872,14 @@ export class MapObstacles {
       });
     };
     const debrisTimer = this.scene.time.addEvent({ delay: 160, loop: true, callback: spawnDebris });
+    this._propLoopTimers.push(debrisTimer);
 
     // ── WIND HUD indicator ───────────────────────────────────
     this._bossWindHudGfx = this.scene.add.graphics().setDepth(200).setScrollFactor(0);
     this._bossWindHudText = this.scene.add.text(
       this.scene.cameras.main.width - 130,
       this.scene.cameras.main.height - 106,
-      "💨 VORTEX WIND", {
+      "VORTEX CORE", {
         fontSize: "11px", color: "#ff8800",
         stroke: "#000", strokeThickness: 2,
       },
@@ -2357,18 +2888,18 @@ export class MapObstacles {
     // Kill debris timer when arena is torn down
     this.scene.events.once("shutdown", () => debrisTimer.remove());
 
-    // ── Boss physics zone — EXTREME: gravity pull + rotating wind applied each frame ──
+    // ── Boss physics zone — readable movement pressure, without bending player shots ──
     this._buildRoomPhysicsZones(
       [[false,false,false],[false,true,false],[false,false,false]],
       [["hub","hub","hub"],["hub","power","hub"],["hub","hub","hub"]],
     );
-    // Override the center zone with boss-specific setup (strong vortex pull)
+    // Override the center zone with boss-specific setup.
     const bossZone = this.roomPhysicsZones.find(z => z.col === 1 && z.row === 1);
     if (bossZone) {
-      bossZone.gravityPull = { x: cx, y: cy, strength: 55 };
-      bossZone.speedMultiplier = 1.15;
-      bossZone.bulletSpeedMod = 1.3;
-      bossZone.physicsLabel = "⚠ VORTEX CORE — ALL PHYSICS EXTREME";
+      bossZone.gravityPull = { x: cx, y: cy, strength: 35 };
+      bossZone.speedMultiplier = 1.08;
+      bossZone.bulletSpeedMod = 1.0;
+      bossZone.physicsLabel = "VORTEX CORE - HOLD POSITION";
     }
   }
 
@@ -2434,10 +2965,14 @@ export class MapObstacles {
       }
     }
 
-    // Remove from static group and destroy
+    // Remove physics body & visual from static group
     this.staticGroup.remove(obs.sprite, true, true);
     obs.sprite?.destroy();
     obs.hpBar?.destroy();
+
+    // Spawn rubble/scorch mark in place — no collision, purely cosmetic
+    const rubble = EnvironmentManager.spawnRubble(this.scene, obs.kind, obs.x, obs.y, obs.w, obs.h);
+    this.decorations.push(rubble);
 
     // Find and destroy associated glow
     if (obs.glow) {

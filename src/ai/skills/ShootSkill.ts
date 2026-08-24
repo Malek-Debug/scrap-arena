@@ -18,14 +18,35 @@ export interface Projectile {
   damage: number;
   distanceTraveled: number;
   maxRange: number;
+  /** Cached bullet speed (px/s) — set at fire time, avoids Math.sqrt in updateAll. */
+  speed: number;
   active: boolean;
+  /** Bullet's own collision radius (px). Combined with agent.hitRadius in CombatSystem. */
+  bulletRadius: number;
+  /** enemy→player collision threshold (= bulletRadius²). */
+  hitRadiusSq: number;
   glow?: Phaser.GameObjects.Arc;
 }
 
 let _scene: Phaser.Scene | null = null;
 let _pool: ObjectPool<Projectile> | null = null;
 const _active: Projectile[] = [];
-const _trails: { gfx: Phaser.GameObjects.Graphics; proj: Projectile; color: number; history: { x: number; y: number }[] }[] = [];
+
+// Single shared trail Graphics object — cleared and redrawn each frame instead of
+// one Graphics per projectile. Eliminates hundreds of per-frame clear() + display list overhead.
+let _trailGfx: Phaser.GameObjects.Graphics | null = null;
+
+// Trail history: two reusable float arrays (x/y) per slot, indexed by position in _trailHistory.
+// Using flat arrays avoids per-frame {x,y} object allocation.
+const _TRAIL_MAX = 48; // max simultaneous trails (reduced for perf)
+const _TRAIL_LEN = 5;   // history length per trail
+const _trailProj: (Projectile | null)[] = new Array(_TRAIL_MAX).fill(null);
+const _trailColor: number[] = new Array(_TRAIL_MAX).fill(0);
+const _trailX: Float32Array = new Float32Array(_TRAIL_MAX * _TRAIL_LEN);
+const _trailY: Float32Array = new Float32Array(_TRAIL_MAX * _TRAIL_LEN);
+const _trailLen: Uint8Array = new Uint8Array(_TRAIL_MAX);
+const _trailHead: Uint8Array = new Uint8Array(_TRAIL_MAX); // ring-buffer head
+let _trailCount = 0;
 
 /**
  * ShootSkill — fires pooled projectiles in a direction.
@@ -34,19 +55,23 @@ const _trails: { gfx: Phaser.GameObjects.Graphics; proj: Projectile; color: numb
  */
 export class ShootSkill extends BaseSkill {
   readonly name = "Shoot";
-  readonly cooldownMs: number;
+  cooldownMs: number;
+  private _baseCooldownMs: number;
   private readonly cfg: ProjectileConfig;
   private readonly ownerId: number;
 
   constructor(ownerId: number, cfg: Partial<ProjectileConfig> = {}, cooldownMs = 800) {
     super(1);
     this.ownerId = ownerId;
+    this._baseCooldownMs = cooldownMs;
     this.cooldownMs = cooldownMs;
     this.cfg = {
       speed: cfg.speed ?? 300,
       damage: cfg.damage ?? 10,
       range: cfg.range ?? 350,
       tint: cfg.tint ?? 0xff6600,
+      spreadCount: cfg.spreadCount ?? 0,
+      spreadAngle: cfg.spreadAngle ?? 0.22,
     };
   }
 
@@ -66,6 +91,9 @@ export class ShootSkill extends BaseSkill {
       }
     }
 
+    // Single shared trail renderer — one Graphics object for all trails
+    _trailGfx = scene.add.graphics().setDepth(46).setBlendMode(Phaser.BlendModes.ADD);
+
     _pool = new ObjectPool<Projectile>(
       () => ({
         sprite: scene.physics.add.image(-9999, -9999, "projectile"),
@@ -73,7 +101,10 @@ export class ShootSkill extends BaseSkill {
         damage: 0,
         distanceTraveled: 0,
         maxRange: 0,
+        speed: 0,
         active: false,
+        bulletRadius: 7,
+        hitRadiusSq: 49,
         glow: undefined,
       }),
       (p) => {
@@ -83,14 +114,63 @@ export class ShootSkill extends BaseSkill {
         p.damage = 0;
         p.distanceTraveled = 0;
         p.maxRange = 0;
+        p.speed = 0;
         p.active = false;
+        p.bulletRadius = 7;
+        p.hitRadiusSq = 49;
         if (p.glow) { p.glow.destroy(); p.glow = undefined; }
       },
       size,
     );
   }
 
+  static resetPool(): void {
+    const destroyProjectile = (p: Projectile): void => {
+      p.active = false;
+      p.ownerId = -1;
+      p.damage = 0;
+      p.distanceTraveled = 0;
+      p.maxRange = 0;
+      try {
+        p.glow?.destroy();
+      } catch {
+        // Object may already be owned by a shutting-down scene.
+      }
+      try {
+        p.sprite?.destroy();
+      } catch {
+        // Object may already be owned by a shutting-down scene.
+      }
+      p.glow = undefined;
+    };
+
+    // Clear shared trail data
+    _trailProj.fill(null);
+    _trailLen.fill(0);
+    _trailHead.fill(0);
+    _trailCount = 0;
+    try { _trailGfx?.destroy(); } catch { /* scene already shutting down */ }
+    _trailGfx = null;
+
+    if (_pool) {
+      _pool.dispose(destroyProjectile);
+    } else {
+      for (const p of _active) {
+        destroyProjectile(p);
+      }
+    }
+
+    _active.length = 0;
+    _pool = null;
+    _scene = null;
+    ShootSkill.chronoActive = false;
+    ShootSkill.chronoCenter.x = 0;
+    ShootSkill.chronoCenter.y = 0;
+    ShootSkill.playerBulletSpeedMult = 1.0;
+  }
+
   static updateAll(delta: number): void {
+    const dt = delta / 1000;
     for (let i = _active.length - 1; i >= 0; i--) {
       const p = _active[i];
       if (!p.active || !p.sprite.active) {
@@ -98,20 +178,19 @@ export class ShootSkill extends BaseSkill {
         continue;
       }
       const body = p.sprite.body as Phaser.Physics.Arcade.Body;
-      const spd = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
-      p.distanceTraveled += spd * (delta / 1000);
+      // Use cached speed — no sqrt needed
+      p.distanceTraveled += p.speed * dt;
       // Chrono Pulse: slow enemy bullets within radius
       if (ShootSkill.chronoActive && p.ownerId > 0) {
         const cdx = p.sprite.x - ShootSkill.chronoCenter.x;
         const cdy = p.sprite.y - ShootSkill.chronoCenter.y;
-        if (cdx * cdx + cdy * cdy < ShootSkill.CHRONO_RADIUS * ShootSkill.CHRONO_RADIUS) {
+        if (cdx * cdx + cdy * cdy < ShootSkill.CHRONO_RADIUS_SQ) {
           body.velocity.x *= 0.12;
           body.velocity.y *= 0.12;
+          // Recompute cached speed after modification
+          p.speed = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
         }
       }
-      // Move glow with projectile (no event listener needed)
-      if (p.glow) p.glow.setPosition(p.sprite.x, p.sprite.y);
-      // Rotate bullet sprite to face travel direction
       if (body.velocity.x !== 0 || body.velocity.y !== 0) {
         p.sprite.setRotation(Math.atan2(body.velocity.y, body.velocity.x));
       }
@@ -120,22 +199,43 @@ export class ShootSkill extends BaseSkill {
       }
     }
 
-    // Update projectile trails
-    for (let i = _trails.length - 1; i >= 0; i--) {
-      const t = _trails[i];
-      if (!t.proj.active) {
-        t.gfx.destroy();
-        _trails.splice(i, 1);
+    // Update all trails using the single shared Graphics object
+    if (!_trailGfx) return;
+    _trailGfx.clear();
+    for (let i = 0; i < _TRAIL_MAX; i++) {
+      const proj = _trailProj[i];
+      if (!proj) continue;
+      if (!proj.active) {
+        // Trail expired — free the slot
+        _trailProj[i] = null;
+        _trailLen[i] = 0;
+        _trailHead[i] = 0;
+        _trailCount--;
         continue;
       }
-      t.history.push({ x: t.proj.sprite.x, y: t.proj.sprite.y });
-      if (t.history.length > 8) t.history.shift();
-      t.gfx.clear();
-      const len = t.history.length;
+      // Push current position into ring buffer
+      const head = _trailHead[i];
+      const base = i * _TRAIL_LEN;
+      _trailX[base + head] = proj.sprite.x;
+      _trailY[base + head] = proj.sprite.y;
+      _trailHead[i] = (head + 1) % _TRAIL_LEN;
+      if (_trailLen[i] < _TRAIL_LEN) _trailLen[i]++;
+
+      // Draw trail segments from oldest to newest
+      const len = _trailLen[i];
+      if (len < 2) continue;
+      const color = _trailColor[i];
+      // Compute oldest index in ring buffer
+      const oldest = (_trailHead[i] - len + _TRAIL_LEN) % _TRAIL_LEN;
       for (let j = 1; j < len; j++) {
         const a = j / len;
-        t.gfx.lineStyle(3 * a, t.color, a * 0.6);
-        t.gfx.lineBetween(t.history[j - 1].x, t.history[j - 1].y, t.history[j].x, t.history[j].y);
+        const idx0 = (oldest + j - 1) % _TRAIL_LEN;
+        const idx1 = (oldest + j) % _TRAIL_LEN;
+        _trailGfx.lineStyle(3 * a, color, a * 0.55);
+        _trailGfx.lineBetween(
+          _trailX[base + idx0], _trailY[base + idx0],
+          _trailX[base + idx1], _trailY[base + idx1],
+        );
       }
     }
   }
@@ -145,23 +245,62 @@ export class ShootSkill extends BaseSkill {
   }
 
   static recycleProjectile(p: Projectile): void {
-    const idx = _active.indexOf(p);
-    if (idx !== -1) ShootSkill._recycle(idx);
+    p.active = false;
+    if (p.glow) { p.glow.destroy(); p.glow = undefined; }
+    _pool?.release(p);
   }
 
   static chronoActive = false;
   static chronoCenter = { x: 0, y: 0 };
   static readonly CHRONO_RADIUS = 320;
+  static readonly CHRONO_RADIUS_SQ = 320 * 320;
 
   /** Per-shot speed multiplier — set by PlayerController from room physics zone. */
   static playerBulletSpeedMult = 1.0;
+
+  /** Override per-shot damage (used by kill-streak bonus). */
+  setDamage(d: number): void {
+    this.cfg.damage = Math.max(1, Math.round(d));
+  }
+
+  get damage(): number {
+    return this.cfg.damage;
+  }
+
+  /** Apply a fire-rate multiplier (>1 = faster). Stored on instance; call each frame or on change. */
+  setFireRateMult(mult: number): void {
+    this.cooldownMs = Math.round(this._baseCooldownMs / mult);
+  }
+
+  resetFireRateMult(): void {
+    this.cooldownMs = this._baseCooldownMs;
+  }
 
   private static _recycle(index: number): void {
     const p = _active[index];
     p.active = false;
     if (p.glow) { p.glow.destroy(); p.glow = undefined; }
     _pool?.release(p);
-    _active.splice(index, 1);
+    // Swap-remove: O(1) instead of splice O(n)
+    const last = _active.length - 1;
+    if (index !== last) _active[index] = _active[last];
+    _active.length = last;
+  }
+
+  /** Allocate a trail ring-buffer slot for a new projectile. Returns false if all slots full. */
+  private static _allocTrail(proj: Projectile, color: number): void {
+    // Find first free slot
+    for (let i = 0; i < _TRAIL_MAX; i++) {
+      if (_trailProj[i] === null) {
+        _trailProj[i] = proj;
+        _trailColor[i] = color;
+        _trailLen[i] = 0;
+        _trailHead[i] = 0;
+        _trailCount++;
+        return;
+      }
+    }
+    // All slots full — silently skip trail (rare; pool size 128 = trail max)
   }
 
   protected onUse(...args: unknown[]): void {
@@ -185,7 +324,12 @@ export class ShootSkill extends BaseSkill {
     }
 
     // ── MACHINE-THEME MUZZLE FX ────────────────────────────────────────
-    ShootSkill._muzzleFx(_scene, x, y, angle, this.cfg.tint);
+    // Full FX only for player; enemies get a single lightweight flash
+    if (this.ownerId === -1) {
+      ShootSkill._muzzleFx(_scene, x, y, angle, this.cfg.tint);
+    } else {
+      ShootSkill._muzzleFxLite(_scene, x, y, angle, this.cfg.tint);
+    }
 
     SystemsBus.instance.emit("projectile:fired", this.ownerId, x, y, angle);
   }
@@ -248,6 +392,16 @@ export class ShootSkill extends BaseSkill {
     });
   }
 
+  private static _muzzleFxLite(scene: Phaser.Scene, x: number, y: number, angle: number, color: number): void {
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    const flash = scene.add.circle(x + cos * 14, y + sin * 14, 4, color, 0.8)
+      .setDepth(49).setBlendMode(Phaser.BlendModes.ADD);
+    scene.tweens.add({
+      targets: flash, scale: 1.8, alpha: 0, duration: 80,
+      onComplete: () => flash.destroy(),
+    });
+  }
+
   /** Fire a single projectile bypassing cooldown — used by special abilities */
   static fireImmediate(
     x: number, y: number, angle: number,
@@ -259,7 +413,10 @@ export class ShootSkill extends BaseSkill {
     p.damage = opts.damage;
     p.maxRange = opts.range;
     p.distanceTraveled = 0;
+    p.speed = opts.speed;
     p.active = true;
+    p.bulletRadius = 7;
+    p.hitRadiusSq = 49;
     const spawnDist = 14;
     const sx = x + Math.cos(angle) * spawnDist;
     const sy = y + Math.sin(angle) * spawnDist;
@@ -274,9 +431,7 @@ export class ShootSkill extends BaseSkill {
     }
     (p.sprite.body as Phaser.Physics.Arcade.Body).setVelocity(Math.cos(angle) * opts.speed, Math.sin(angle) * opts.speed);
     _active.push(p);
-    p.glow = _scene.add.circle(sx, sy, 12, opts.tint, 0.45).setDepth(47).setBlendMode(Phaser.BlendModes.ADD);
-    const trailGfx = _scene.add.graphics().setDepth(46).setBlendMode(Phaser.BlendModes.ADD);
-    _trails.push({ gfx: trailGfx, proj: p, color: opts.tint, history: [{ x: sx, y: sy }] });
+    ShootSkill._allocTrail(p, opts.tint);
   }
 
   private _fireOne(x: number, y: number, angle: number): void {
@@ -287,13 +442,14 @@ export class ShootSkill extends BaseSkill {
     p.maxRange = this.cfg.range;
     p.distanceTraveled = 0;
     p.active = true;
+    const isPlayer = this.ownerId === -1;
+    p.bulletRadius = isPlayer ? 7 : 5;
+    p.hitRadiusSq = isPlayer ? 49 : 25;
 
     const spawnDist = 14;
     const sx = x + Math.cos(angle) * spawnDist;
     const sy = y + Math.sin(angle) * spawnDist;
 
-    // Use pixel art bullet for player, default projectile for enemies
-    const isPlayer = this.ownerId === -1;
     const bulletKey = isPlayer && _scene!.textures.exists("bullet_3") ? "bullet_3" : "projectile";
 
     p.sprite
@@ -310,21 +466,15 @@ export class ShootSkill extends BaseSkill {
       (p.sprite.texture as Phaser.Textures.Texture).setFilter(Phaser.Textures.FilterMode.NEAREST);
     }
 
-    const bulletSpd = this.ownerId === -1
+    const bulletSpd = isPlayer
       ? this.cfg.speed * ShootSkill.playerBulletSpeedMult
       : this.cfg.speed;
 
+    p.speed = bulletSpd; // cache for updateAll — no sqrt needed
     (p.sprite.body as Phaser.Physics.Arcade.Body)
       .setVelocity(Math.cos(angle) * bulletSpd, Math.sin(angle) * bulletSpd);
 
     _active.push(p);
-
-    // Glow halo — stored on projectile, moved in updateAll (no event listener)
-    p.glow = _scene.add.circle(sx, sy, 10, this.cfg.tint, 0.35)
-      .setDepth(47).setBlendMode(Phaser.BlendModes.ADD);
-
-    // Energy trail
-    const trailGfx = _scene.add.graphics().setDepth(46).setBlendMode(Phaser.BlendModes.ADD);
-    _trails.push({ gfx: trailGfx, proj: p, color: this.cfg.tint, history: [{ x: sx, y: sy }] });
+    ShootSkill._allocTrail(p, this.cfg.tint);
   }
 }

@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { BACKGROUND_MUSIC_ENABLED } from "../audio/AudioManager";
 import { generatePlaceholders } from "../rendering/PlaceholderTextures";
 
 /**
@@ -16,19 +17,83 @@ export class PreloaderScene extends Phaser.Scene {
 
   preload(): void {
     // YouTube Playables: signal that we've rendered the first loading frame
-    if (typeof ytgame !== "undefined") ytgame.game.firstFrameReady();
+    if (typeof ytgame !== "undefined") ytgame.game?.firstFrameReady?.();
 
     const { width, height } = this.cameras.main;
-    const barW = width * 0.5;
-    const barH = 16;
-    const x = (width - barW) / 2;
-    const y = height / 2;
+    const cx = width / 2;
+    const cy = height / 2;
 
-    this.barBg = this.add.rectangle(x, y, barW, barH, 0x222222).setOrigin(0, 0.5);
-    this.bar = this.add.rectangle(x, y, 0, barH, 0x00ff88).setOrigin(0, 0.5);
+    // Dark background
+    this.add.rectangle(cx, cy, width, height, 0x060a10);
 
+    // Outer frame ticks
+    const frame = this.add.graphics();
+    const c = 22;
+    frame.lineStyle(2, 0xff6a00, 0.6);
+    [[12,12],[width-12-c,12],[12,height-12-c],[width-12-c,height-12-c]]
+      .forEach(([bx,by]) => frame.strokeRect(bx,by,c,c));
+    frame.lineStyle(1, 0x00e5ff, 0.15);
+    frame.strokeRect(20, 20, width-40, height-40);
+
+    // Title text
+    this.add.text(cx, cy - 72, "SCRAP ARENA", {
+      fontFamily: '"Orbitron","Courier New",monospace',
+      fontSize: "36px", color: "#ff7a18", fontStyle: "bold",
+      stroke: "#000000", strokeThickness: 8,
+    }).setOrigin(0.5);
+    this.add.text(cx, cy - 30, "THE FRACTURE", {
+      fontFamily: '"Oxanium","Consolas",monospace',
+      fontSize: "16px", color: "#38d8ff", letterSpacing: 6,
+    }).setOrigin(0.5);
+
+    // Bar frame
+    const barW = width * 0.44;
+    const barH = 6;
+    const barX = cx - barW / 2;
+    const barY = cy + 32;
+    this.add.rectangle(barX + barW / 2, barY, barW + 4, barH + 4, 0x020810).setOrigin(0.5);
+    this.add.rectangle(barX + barW / 2, barY, barW, barH, 0x0a1520).setOrigin(0.5);
+    this.barBg = this.add.rectangle(barX, barY, barW, barH, 0x0a1520).setOrigin(0, 0.5);
+    this.bar  = this.add.rectangle(barX, barY, 0, barH, 0x38d8ff).setOrigin(0, 0.5);
+
+    // Glow cap on bar fill
+    const barGlow = this.add.graphics();
+
+    // Status label
+    const statusTxt = this.add.text(cx, barY + 18, "INITIALIZING SYSTEMS...", {
+      fontFamily: '"Oxanium","Consolas",monospace',
+      fontSize: "9px", color: "#6f8990",
+    }).setOrigin(0.5);
+
+    // Pct label
+    const pctTxt = this.add.text(cx, barY - 16, "0%", {
+      fontFamily: '"Oxanium","Consolas",monospace',
+      fontSize: "11px", color: "#38d8ff",
+    }).setOrigin(0.5);
+
+    const statuses = [
+      "LOADING COMBAT SYSTEMS",
+      "CALIBRATING WEAPONS",
+      "BUILDING REACTOR GRID",
+      "SYNCING WAVE PROTOCOL",
+      "ARMING VOID SECTOR",
+    ];
+
+    this.load.on("complete", () => {
+    });
+    this.load.on("loaderror", () => {
+    });
     this.load.on("progress", (v: number) => {
-      this.bar.width = barW * v;
+      const w = barW * v;
+      this.bar.width = w;
+      pctTxt.setText(`${Math.round(v * 100)}%`);
+      statusTxt.setText(statuses[Math.min(Math.floor(v * statuses.length), statuses.length - 1)]);
+      // Glow tip on leading edge
+      barGlow.clear();
+      if (v > 0.01) {
+        barGlow.fillStyle(0x38d8ff, 0.55);
+        barGlow.fillRect(barX + w - 3, barY - 4, 6, barH + 8);
+      }
     });
 
     // --- LOAD YOUR ASSETS HERE ---
@@ -45,7 +110,23 @@ export class PreloaderScene extends Phaser.Scene {
     // Tilemaps
     // this.load.tilemapTiledJSON("level1", "assets/maps/level1.json");
 
+    // UI background + logo
+    this.load.image("lobby_background", "assets/ui/lobby_background.png");
+    this.load.image("title_logo", "assets/ui/title_logo.png");
+
+    // ── HUD icons (Lucide, ISC license, cyan/amber/red tinted SVGs) ──────────
+    const hudIcons: string[] = [
+      "UI_Reactor", "UI_Health", "UI_Heat", "UI_Radar", "UI_Target",
+      "UI_Combat", "UI_Warning", "UI_AbilityNova", "UI_AbilitySurge",
+      "UI_AbilityShield", "UI_AbilityChrono", "UI_WorldSwitch", "UI_Repair",
+      "UI_Enemy", "UI_Objective", "UI_Score", "UI_Wave", "UI_Energy", "UI_Settings",
+    ];
+    for (const key of hudIcons) {
+      this.load.svg(key, `assets/ui/icons/${key}.svg`, { width: 32, height: 32 });
+    }
+
     // Weapon sprites — 5 gun tiers (idle + firing)
+
     const gunTiers = [1, 3, 5, 8, 10];
     for (const t of gunTiers) {
       this.load.image(`gun_${t}_idle`, `assets/guns/${t}_1.png`);
@@ -76,7 +157,7 @@ export class PreloaderScene extends Phaser.Scene {
     this.load.spritesheet("boss_proj_sheet", "assets/enemies/Reactor_Man_Projectile.png", { frameWidth: 16, frameHeight: 16 });
 
     // ── Audio assets (Kenney CC0) ──────────────────────────────────────────
-    const audioFiles: [string, string | string[]][] = [
+    const sfxFiles: [string, string | string[]][] = [
       ["sfx_shoot",         "assets/audio/sfx_shoot.ogg"],
       ["sfx_shoot2",        "assets/audio/sfx_shoot2.ogg"],
       ["sfx_shoot_large",   "assets/audio/sfx_shoot_large.ogg"],
@@ -97,14 +178,18 @@ export class PreloaderScene extends Phaser.Scene {
       ["sfx_switch",        "assets/audio/sfx_switch.ogg"],
       ["sfx_powerup",       "assets/audio/sfx_powerup.ogg"],
       ["sfx_shield",        "assets/audio/sfx_shield.ogg"],
-      // Load compact formats first; keep mp3 fallback for wider compatibility.
-      ["music_main",        ["assets/audio/music_main.ogg", "assets/audio/Gameplay Music.mp3"]],
-      ["music_boss",        ["assets/audio/music_boss.ogg", "assets/audio/Boss Music.mp3"]],
-      ["music_title",       ["assets/audio/music_title.ogg", "assets/audio/Game Lobby.mp3"]],
+    ];
+    const musicFiles: [string, string | string[]][] = [
+      // Prefer the curated MP3 tracks; keep compact OGG fallbacks for resilience.
+      ["music_main",        ["assets/audio/Gameplay Music.mp3", "assets/audio/music_main.ogg"]],
+      ["music_boss",        ["assets/audio/Boss Music.mp3", "assets/audio/music_boss.ogg"]],
+      ["music_title",       ["assets/audio/Game Lobby.mp3", "assets/audio/music_title.ogg"]],
+      // Aliased keys — AudioManager references these directly; route to existing tracks.
       ["music_lobby",       ["assets/audio/Game Lobby.mp3", "assets/audio/music_title.ogg"]],
       ["music_gameover",    ["assets/audio/Boss Music.mp3", "assets/audio/music_boss.ogg"]],
       ["music_victory",     ["assets/audio/Game Lobby.mp3", "assets/audio/music_title.ogg"]],
     ];
+    const audioFiles = BACKGROUND_MUSIC_ENABLED ? [...sfxFiles, ...musicFiles] : sfxFiles;
     for (const [key, url] of audioFiles) {
       this.load.audio(key, url);
     }
@@ -118,7 +203,15 @@ export class PreloaderScene extends Phaser.Scene {
     this.barBg.destroy();
     this._createPlayerAnimations();
     this._createEnemyAnimations();
-    this.scene.start("TitleScene");
+    // First visit plays the intro cinematic; subsequent visits (restart/game-over)
+    // go straight to TitleScene so the intro never blocks a replay.
+    let introDone = false;
+    try { introDone = !!sessionStorage.getItem("scrapArenaIntroDone"); } catch { /* sandboxed */ }
+
+    this.cameras.main.fadeOut(320, 0, 0, 0);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.scene.start(introDone ? "TitleScene" : "IntroScene");
+    });
   }
 
   /** Create player character animations from Cyborg spritesheet */

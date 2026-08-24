@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { ParticleVFX } from "./ParticleVFX";
 
 const GAME_WIDTH = 1280;
 const GAME_HEIGHT = 720;
@@ -13,15 +14,6 @@ interface AmbientParticle {
   radius: number;
   color: number;
   alpha: number;
-}
-
-interface SparkParticle {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  life: number;
-  maxLife: number;
 }
 
 /**
@@ -43,79 +35,29 @@ export class GameJuice {
   }
 
   // ── Muzzle flash ─────────────────────────────────────────────────────────
-  muzzleFlash(x: number, y: number, color: number): void {
-    const flash = this.scene.add
-      .circle(x, y, 6, color, 1)
-      .setDepth(51)
-      .setBlendMode(Phaser.BlendModes.ADD);
-
-    this.scene.tweens.add({
-      targets: flash,
-      scaleX: 2.5,
-      scaleY: 2.5,
-      alpha: 0,
-      duration: 100,
-      ease: "Quad.easeOut",
-      onComplete: () => flash.destroy(),
-    });
+  muzzleFlash(x: number, y: number, _color: number): void {
+    ParticleVFX.muzzleFlash(this.scene, x, y, 0);
   }
 
   // ── Spawn effect ─────────────────────────────────────────────────────────
   spawnEffect(x: number, y: number, color: number): void {
-    // Expanding ring
+    // Expanding ring (kept — gives distinct arrival feel)
     const ring = this.scene.add
       .circle(x, y, 4, color, 0.6)
       .setDepth(49)
       .setBlendMode(Phaser.BlendModes.ADD);
-
     this.scene.tweens.add({
-      targets: ring,
-      scaleX: 7.5, // 4 * 7.5 = 30 effective radius
-      scaleY: 7.5,
-      alpha: 0,
-      duration: 400,
-      ease: "Quad.easeOut",
+      targets: ring, scaleX: 7.5, scaleY: 7.5, alpha: 0,
+      duration: 400, ease: "Quad.easeOut",
       onComplete: () => ring.destroy(),
     });
-
-    // 6 converging particles
-    for (let i = 0; i < 6; i++) {
-      const angle = (Math.PI * 2 * i) / 6;
-      const dist = 30;
-      const px = x + Math.cos(angle) * dist;
-      const py = y + Math.sin(angle) * dist;
-
-      const dot = this.scene.add
-        .circle(px, py, 2, color, 0.8)
-        .setDepth(49)
-        .setBlendMode(Phaser.BlendModes.ADD);
-
-      this.scene.tweens.add({
-        targets: dot,
-        x,
-        y,
-        alpha: 0,
-        duration: 400,
-        ease: "Quad.easeIn",
-        onComplete: () => dot.destroy(),
-      });
-    }
+    // Particle scatter instead of circle loop
+    ParticleVFX.spawnEffect(this.scene, x, y, color);
   }
 
   // ── Dash trail ───────────────────────────────────────────────────────────
   dashTrail(x: number, y: number): void {
-    const trail = this.scene.add
-      .circle(x, y, 8, 0x00ff88, 0.4)
-      .setDepth(50)
-      .setBlendMode(Phaser.BlendModes.ADD);
-
-    this.scene.tweens.add({
-      targets: trail,
-      alpha: 0,
-      duration: 200,
-      ease: "Linear",
-      onComplete: () => trail.destroy(),
-    });
+    ParticleVFX.dashTrail(this.scene, x, y);
   }
 
   // ── Ambient particles ────────────────────────────────────────────────────

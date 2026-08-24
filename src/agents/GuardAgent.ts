@@ -59,6 +59,9 @@ export class GuardAgent extends BaseAgent {
     speed = 70,
   ) {
     super(GuardAgent._buildActions(), 0.06);
+    this.worldType = "CIRCUIT";
+    this.agentKind = "guard";
+    this.hitRadius = 17; // frame 32px, scale 1.15 → visual radius ~18px; 17px is precise
     this.posX = x;
     this.posY = y;
     this.postX = x;

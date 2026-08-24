@@ -1,26 +1,30 @@
 import Phaser from "phaser";
 import type { Mission } from "../core/MissionSystem";
-import { GAME_WIDTH } from "../core";
+import { UI_MONO, C, FS, constrainTextBlock, fitTextWidth } from "./UITheme";
 
 // ---------------------------------------------------------------------------
-// MissionUI — Right-side mission tracker panel
+// MissionUI — left-side compact mission tracker
+// x=24, y=160 — floats without heavy backgrounds; stacks up to 3 slots
 // ---------------------------------------------------------------------------
 
-const PANEL_X = GAME_WIDTH - 180;
-const PANEL_Y = 200;
-const PANEL_W = 168;
-const ROW_H = 52;
-const BAR_W = 148;
-const BAR_H = 6;
-const DEPTH = 100;
+const SLOT_W  = 192;
+const SLOT_X  = 24;
+const FIRST_Y = 160;
+const ROW_H   = 52;
+const GAP     = 4;
+const BAR_W   = SLOT_W - 8;
+const BAR_H   = 2;
+const DEPTH   = 100;
 
 interface MissionSlot {
-  bg: Phaser.GameObjects.Rectangle;
+  gfx: Phaser.GameObjects.Graphics;
   title: Phaser.GameObjects.Text;
   barBg: Phaser.GameObjects.Rectangle;
   barFill: Phaser.GameObjects.Rectangle;
-  progressText: Phaser.GameObjects.Text;
+  rewardText: Phaser.GameObjects.Text;
   missionId: string | null;
+  prevAccent: number;
+  visible: boolean;
 }
 
 export class MissionUI {
@@ -33,117 +37,158 @@ export class MissionUI {
     this.scene = scene;
     this.container = scene.add.container(0, 0).setDepth(DEPTH).setScrollFactor(0);
 
-    // Header label above mission slots
-    const header = scene.add.text(PANEL_X + 4, PANEL_Y - 16, "▸ OBJECTIVES", {
-      fontFamily: "monospace", fontSize: "10px",
-      color: "#ff8800cc", fontStyle: "bold", letterSpacing: 1,
-    }).setOrigin(0, 0);
-    const headerLine = scene.add.rectangle(PANEL_X, PANEL_Y - 3, PANEL_W, 1, 0xff880044, 1).setOrigin(0, 0);
-    this.container.add([header, headerLine]);
+    // Compact section label — no panel, just dim text
+    const header = scene.add.text(SLOT_X, FIRST_Y - 16, "OBJECTIVES", {
+      fontFamily: UI_MONO, fontSize: FS.xs,
+      color: C.cyanH, fontStyle: "bold",
+      letterSpacing: 2,
+    }).setOrigin(0, 1).setScrollFactor(0).setDepth(DEPTH).setAlpha(0.3);
+    this.container.add(header);
 
     for (let i = 0; i < 3; i++) {
-      const y = PANEL_Y + i * (ROW_H + 4);
+      const y = FIRST_Y + i * (ROW_H + GAP);
 
-      const bg = scene.add.rectangle(PANEL_X, y, PANEL_W, ROW_H, 0x111111, 0.75)
-        .setOrigin(0, 0).setStrokeStyle(1, 0x333333);
+      const gfx = scene.add.graphics();
 
-      const title = scene.add.text(PANEL_X + 6, y + 4, "", {
-        fontFamily: "monospace", fontSize: "11px",
-        color: "#ff8800", fontStyle: "bold",
+      const title = scene.add.text(SLOT_X + 10, y + 5, "", {
+        fontFamily: UI_MONO, fontSize: FS.xs, color: C.cyanH,
+        wordWrap: { width: SLOT_W - 14, useAdvancedWrap: true },
       }).setOrigin(0, 0);
 
-      const barBg = scene.add.rectangle(PANEL_X + 10, y + 22, BAR_W, BAR_H, 0x222222, 0.9)
+      const barBg = scene.add.rectangle(SLOT_X + 4, y + ROW_H - 12, BAR_W, BAR_H, C.ink, 1)
         .setOrigin(0, 0);
 
-      const barFill = scene.add.rectangle(PANEL_X + 10, y + 22, 0, BAR_H, 0xff6600, 1)
+      const barFill = scene.add.rectangle(SLOT_X + 4, y + ROW_H - 12, 0, BAR_H, C.cyan, 1)
         .setOrigin(0, 0);
 
-      const progressText = scene.add.text(PANEL_X + 10, y + 32, "", {
-        fontFamily: "monospace", fontSize: "10px",
-        color: "#aaaaaa",
+      const rewardText = scene.add.text(SLOT_X + 4, y + ROW_H - 8, "", {
+        fontFamily: UI_MONO, fontSize: FS.xs, color: C.mutedH,
       }).setOrigin(0, 0);
 
-      this.container.add([bg, title, barBg, barFill, progressText]);
-      this.slots.push({ bg, title, barBg, barFill, progressText, missionId: null });
+      this.container.add([gfx, title, barBg, barFill, rewardText]);
+      this.slots.push({
+        gfx, title, barBg, barFill, rewardText,
+        missionId: null, prevAccent: C.cyan, visible: false,
+      });
     }
   }
 
   update(missions: readonly Mission[]): void {
     for (let i = 0; i < 3; i++) {
       const slot = this.slots[i];
-      const m = missions[i];
-      if (!m) {
-        slot.bg.setVisible(false);
-        slot.title.setVisible(false);
-        slot.barBg.setVisible(false);
-        slot.barFill.setVisible(false);
-        slot.progressText.setVisible(false);
-        slot.missionId = null;
-        continue;
+      const m    = missions[i];
+      const now  = !!m;
+
+      // Animate visibility transitions
+      if (now !== slot.visible) {
+        slot.visible = now;
+        const objs = [slot.gfx, slot.title, slot.barBg, slot.barFill, slot.rewardText];
+        if (now) {
+          objs.forEach(o => { o.setVisible(true); (o as Phaser.GameObjects.Text | Phaser.GameObjects.Rectangle | Phaser.GameObjects.Graphics).setAlpha(0); });
+          this.scene.tweens.add({ targets: objs, alpha: 1, duration: 250, ease: "Sine.easeOut" });
+        } else {
+          this.scene.tweens.add({
+            targets: objs, alpha: 0, duration: 180,
+            onComplete: () => objs.forEach(o => o.setVisible(false)),
+          });
+          slot.missionId = null;
+          continue;
+        }
+      }
+      if (!now) continue;
+
+      const y     = FIRST_Y + i * (ROW_H + GAP);
+      const ratio = Math.min(1, m!.progress / m!.target);
+
+      // Accent based on progress: amber early → cyan mid → green complete
+      const accent = ratio >= 1 ? C.green : ratio > 0.55 ? C.cyan : C.amber;
+
+      if (accent !== slot.prevAccent) {
+        slot.prevAccent = accent;
+        this._drawSlot(slot.gfx, SLOT_X, y, SLOT_W, ROW_H - 2, accent);
+      }
+      if (slot.missionId !== m!.id) {
+        slot.missionId = m!.id;
+        this._drawSlot(slot.gfx, SLOT_X, y, SLOT_W, ROW_H - 2, accent);
       }
 
-      slot.bg.setVisible(true);
-      slot.title.setVisible(true);
-      slot.barBg.setVisible(true);
-      slot.barFill.setVisible(true);
-      slot.progressText.setVisible(true);
+      const accentH = `#${accent.toString(16).padStart(6, "0")}`;
+      slot.title.setText(m!.title).setColor(accentH);
+      constrainTextBlock(slot.title, SLOT_W - 14, 2, 8);
 
-      slot.title.setText(m.title);
-      const ratio = Math.min(1, m.progress / m.target);
       slot.barFill.width = BAR_W * ratio;
+      slot.barFill.setFillStyle(accent, ratio >= 1 ? 0.65 : 0.9);
 
-      const displayed = Math.min(m.progress, m.target);
-      slot.progressText.setText(`${displayed}/${m.target}`);
-
-      // Color based on progress
-      if (ratio >= 1) {
-        slot.barFill.setFillStyle(0x00ff88, 1);
-        slot.title.setColor("#00ff88");
-      } else if (ratio > 0.6) {
-        slot.barFill.setFillStyle(0x44ccff, 1);
-        slot.title.setColor("#44ccff");
-      } else {
-        slot.barFill.setFillStyle(0xff6600, 1);
-        slot.title.setColor("#ff8800");
-      }
-
-      slot.missionId = m.id;
+      slot.rewardText.setText(`${Math.min(m!.progress, m!.target)} / ${m!.target}  +${m!.reward.scrap}⬡`);
+      fitTextWidth(slot.rewardText, SLOT_W - 8, 8);
     }
   }
 
   showCompletion(mission: Mission): void {
     const txt = this.scene.add.text(
-      PANEL_X + PANEL_W / 2, PANEL_Y - 10,
-      `✓ ${mission.title}\n+${mission.reward.scrap}⬡  +${mission.reward.scoreBonus}pts`,
+      SLOT_X + SLOT_W / 2,
+      FIRST_Y,
+      `✓  ${mission.title}  +${mission.reward.scrap}⬡`,
       {
-        fontFamily: "monospace", fontSize: "12px",
-        color: "#00ff88", fontStyle: "bold",
-        align: "center",
-        backgroundColor: "#111111cc",
-        padding: { x: 6, y: 4 },
+        fontFamily: UI_MONO, fontSize: FS.xs,
+        color: C.greenH,
+        backgroundColor: "#020810bb",
+        padding: { x: 8, y: 5 },
       }
-    ).setOrigin(0.5, 1).setDepth(DEPTH + 1).setScrollFactor(0);
+    ).setOrigin(0.5, 1).setDepth(DEPTH + 2).setScrollFactor(0).setAlpha(0);
 
     this.completeTexts.push(txt);
-
     this.scene.tweens.add({
-      targets: txt,
-      y: txt.y - 30,
-      alpha: 0,
-      duration: 2000,
-      delay: 800,
-      ease: "Power2",
+      targets: txt, alpha: 1, y: txt.y - 4,
+      duration: 250, ease: "Sine.easeOut",
       onComplete: () => {
-        const idx = this.completeTexts.indexOf(txt);
-        if (idx >= 0) this.completeTexts.splice(idx, 1);
-        txt.destroy();
+        this.scene.tweens.add({
+          targets: txt, alpha: 0, y: txt.y - 24,
+          duration: 600, delay: 1200, ease: "Power2",
+          onComplete: () => {
+            const idx = this.completeTexts.indexOf(txt);
+            if (idx >= 0) this.completeTexts.splice(idx, 1);
+            txt.destroy();
+          },
+        });
       },
     });
+  }
+
+  setVisible(visible: boolean): void {
+    this.container.setVisible(visible);
   }
 
   destroy(): void {
     for (const t of this.completeTexts) t.destroy();
     this.completeTexts.length = 0;
     this.container.destroy(true);
+  }
+
+  // ─── Slot rendering — minimal glass strip ────────────────────────────────
+
+  private _drawSlot(
+    gfx: Phaser.GameObjects.Graphics,
+    x: number, y: number, w: number, h: number,
+    accent: number,
+  ): void {
+    gfx.clear();
+
+    // Very faint fill — just enough to separate from world
+    gfx.fillStyle(C.ink, 0.18);
+    gfx.fillRect(x, y, w, h);
+
+    // Single top accent line
+    gfx.lineStyle(1, accent, 0.55);
+    gfx.lineBetween(x + 4, y, x + w - 4, y);
+
+    // Left accent strip
+    gfx.fillStyle(accent, 0.6);
+    gfx.fillRect(x, y, 2, h);
+
+    // Bottom right corner bracket only — minimal decoration
+    gfx.lineStyle(1, accent, 0.3);
+    gfx.lineBetween(x + w - 8, y + h, x + w, y + h);
+    gfx.lineBetween(x + w, y + h, x + w, y + h - 8);
   }
 }

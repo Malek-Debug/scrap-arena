@@ -117,9 +117,13 @@ export class InputMultiplexer {
 
   private readMouse(s: InputState, playerX: number, playerY: number): void {
     const pointer = this.scene.input.activePointer;
-    s.pointerX = pointer.worldX;
-    s.pointerY = pointer.worldY;
-    s.aimAngle = Math.atan2(pointer.worldY - playerY, pointer.worldX - playerX);
+    // Use camera.getWorldPoint so coordinates stay current even when mouse hasn't moved
+    // but the camera has scrolled (e.g. player walks into a new room).
+    const cam = this.scene.cameras.main;
+    const world = cam.getWorldPoint(pointer.x, pointer.y);
+    s.pointerX = world.x;
+    s.pointerY = world.y;
+    s.aimAngle = Math.atan2(world.y - playerY, world.x - playerX);
 
     if (pointer.isDown) {
       if (pointer.button === 0) s.action1 = true;
@@ -155,9 +159,11 @@ export class InputMultiplexer {
     }
 
     if (rightTouch) {
-      s.pointerX = rightTouch.worldX;
-      s.pointerY = rightTouch.worldY;
-      s.aimAngle = Math.atan2(rightTouch.worldY - playerY, rightTouch.worldX - playerX);
+      const cam = this.scene.cameras.main;
+      const tWorld = cam.getWorldPoint(rightTouch.x, rightTouch.y);
+      s.pointerX = tWorld.x;
+      s.pointerY = tWorld.y;
+      s.aimAngle = Math.atan2(tWorld.y - playerY, tWorld.x - playerX);
       s.action1 = true;
       const dashZone = rightTouch.x > this.scene.scale.width * 0.78 && rightTouch.y > this.scene.scale.height * 0.68;
       if (dashZone && rightTouch.getDuration() < 140) {

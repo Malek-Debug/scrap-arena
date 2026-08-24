@@ -3,6 +3,8 @@ import { GAME_WIDTH, GAME_HEIGHT } from "../core";
 import { AudioManager } from "../audio/AudioManager";
 import { WalletManager } from "../web3/WalletManager";
 import { SecureStore } from "../core/SecureStore";
+import { UI_FONT, UI_MONO, UI_ORBITRON, constrainTextBlock, drawPanel, fitTextWidth } from "../rendering/UITheme";
+import { calculateRunScore, calculateRunGrade, VICTORY_BONUS } from "../core/RunGrading";
 
 const GOLD  = "#ffcc00";
 const GREEN = "#00ff88";
@@ -10,17 +12,10 @@ const CYAN  = "#00ccff";
 const WHITE = "#ffffff";
 const DIM   = "#886622";
 
-function calcGrade(score: number): { grade: string; gradeColor: number } {
-  if      (score >= 5000) return { grade: "S", gradeColor: 0xffcc00 };
-  else if (score >= 3000) return { grade: "A", gradeColor: 0xcc44ff };
-  else if (score >= 1500) return { grade: "B", gradeColor: 0x00ccff };
-  else if (score >= 500)  return { grade: "C", gradeColor: 0x00ff88 };
-  else                    return { grade: "D", gradeColor: 0xaaaaaa };
-}
-
 export class VictoryScene extends Phaser.Scene {
   private particleTimer?: Phaser.Time.TimerEvent;
   private confettiTimer?: Phaser.Time.TimerEvent;
+  private scanlineTimer?: Phaser.Time.TimerEvent;
   private transitioning = false;
   private scanGfx?: Phaser.GameObjects.Graphics;
   private scanOffset = 0;
@@ -30,17 +25,22 @@ export class VictoryScene extends Phaser.Scene {
   create(): void {
     this.transitioning = false;
     this.scanOffset = 0;
+    this.input.enabled = true;
+    this.cameras.main.resetFX();
+    this.cameras.main.setAlpha(1);
 
     const data = (this.scene.settings.data ?? {}) as {
-      kills?: number; wave?: number; scrap?: number; score?: number; maxCombo?: number;
+      kills?: number; wave?: number; scrap?: number; score?: number; maxCombo?: number; maxStreak?: number;
     };
-    const kills    = data.kills    ?? 0;
-    const wave     = data.wave     ?? 0;
-    const scrap    = data.scrap    ?? 0;
-    const score    = data.score    ?? 0;
-    const maxCombo = data.maxCombo ?? 0;
+    const kills     = data.kills     ?? 0;
+    const wave      = data.wave      ?? 0;
+    const scrap     = data.scrap     ?? 0;
+    const combatScore = data.score  ?? 0;
+    const maxCombo  = data.maxCombo  ?? 0;
+    const maxStreak = data.maxStreak ?? 0;
 
-    const { grade, gradeColor } = calcGrade(score);
+    const score = calculateRunScore({ combatScore, kills, wave, maxCombo, maxStreak, completed: true });
+    const { grade, gradeColor } = calculateRunGrade(score);
 
     // Audio
     AudioManager.instance.setScene(this);
@@ -63,7 +63,7 @@ export class VictoryScene extends Phaser.Scene {
 
     // YouTube Playables: submit score
     if (typeof ytgame !== "undefined") {
-      ytgame.engagement.sendScore({ value: score });
+      ytgame.engagement?.sendScore?.({ value: score });
     }
 
     // Ethereum: sign score if wallet connected (async, non-blocking)
@@ -113,53 +113,55 @@ export class VictoryScene extends Phaser.Scene {
     titleGlow.fillCircle(cx, 70, 280);
     this.tweens.add({ targets: titleGlow, alpha: 1, duration: 1000, delay: 100 });
 
-    const titleText = this.add.text(cx, 68, "MISSION  COMPLETE", {
-      fontFamily: "monospace", fontSize: "52px", color: GOLD,
+    const titleText = this.add.text(cx, 68, "MISSION COMPLETE", {
+      fontFamily: UI_ORBITRON, fontSize: "52px", color: GOLD,
       fontStyle: "bold", stroke: "#000000", strokeThickness: 8,
       shadow: { offsetX: 0, offsetY: 0, color: "#ffcc00", blur: 20, fill: true },
     }).setOrigin(0.5).setAlpha(0).setScale(0.3);
     this.tweens.add({ targets: titleText, alpha: 1, scale: 1, duration: 700, delay: 150, ease: "Back.easeOut" });
 
     // Subtitle
-    const subtitle = this.add.text(cx, 126, "//  M A C H I N E   C O R E   D E S T R O Y E D  //", {
-      fontFamily: "monospace", fontSize: "13px", color: GREEN,
+    const subtitle = this.add.text(cx, 126, "MACHINE CORE DESTROYED  //  FRACTURE SEALED", {
+      fontFamily: UI_MONO, fontSize: "13px", color: GREEN,
       shadow: { offsetX: 0, offsetY: 0, color: "#00ff88", blur: 8, fill: true },
     }).setOrigin(0.5).setAlpha(0);
     this.tweens.add({ targets: subtitle, alpha: 1, duration: 500, delay: 500 });
 
     // Survived banner
     const survivedTxt = this.add.text(cx, 156, `YOU SURVIVED ALL ${wave} WAVES`, {
-      fontFamily: "monospace", fontSize: "15px", color: CYAN, fontStyle: "bold",
+      fontFamily: UI_FONT, fontSize: "15px", color: CYAN, fontStyle: "bold",
       stroke: "#000000", strokeThickness: 2,
     }).setOrigin(0.5).setAlpha(0);
     this.tweens.add({ targets: survivedTxt, alpha: 1, duration: 400, delay: 800 });
     this.tweens.add({ targets: survivedTxt, alpha: { from: 1, to: 0.4 }, duration: 700, yoyo: true, repeat: -1, ease: "Sine.easeInOut", delay: 1500 });
 
     // ── Stats panel ──
-    const panelX = cx - 280, panelW = 560, panelY = 178, panelH = 210;
+    const panelX = cx - 430, panelW = 560, panelY = 178, panelH = 264;
+    const panelCx = panelX + panelW / 2;
 
-    gfx.fillStyle(0x060e04, 0.85);
-    gfx.fillRoundedRect(panelX, panelY, panelW, panelH, 4);
-    gfx.lineStyle(2, 0xffdd00, 0.5);
-    gfx.strokeRoundedRect(panelX, panelY, panelW, panelH, 4);
-    gfx.lineStyle(1, 0x00ff88, 0.2);
-    gfx.strokeRoundedRect(panelX + 4, panelY + 4, panelW - 8, panelH - 8, 2);
+    const panelGfx = this.add.graphics();
+    drawPanel(panelGfx, panelX, panelY, panelW, panelH, 0xffdd00, 0x030b08, 0.88, 8);
+    panelGfx.fillStyle(0x00ff88, 0.045);
+    panelGfx.fillRect(panelX + 1, panelY + 1, panelW - 2, 48);
 
-    this.add.text(cx, panelY + 18, "── COMBAT LOG ──", {
-      fontFamily: "monospace", fontSize: "12px", color: GOLD,
-    }).setOrigin(0.5);
+    this.add.text(panelX + 24, panelY + 24, "VICTORY REPORT", {
+      fontFamily: UI_FONT, fontSize: "13px", color: GOLD, fontStyle: "bold",
+    }).setOrigin(0, 0.5);
 
-    const labelStyle: Phaser.Types.GameObjects.Text.TextStyle = { fontFamily: "monospace", fontSize: "17px", color: GOLD };
-    const statStyle: Phaser.Types.GameObjects.Text.TextStyle = { fontFamily: "monospace", fontSize: "17px", color: CYAN };
-    const statStartY = panelY + 40, lineH = 28, labelX = panelX + 20, valueX = panelX + panelW - 20;
+    const labelStyle: Phaser.Types.GameObjects.Text.TextStyle = { fontFamily: UI_FONT, fontSize: "16px", color: GOLD };
+    const statStyle: Phaser.Types.GameObjects.Text.TextStyle = { fontFamily: UI_MONO, fontSize: "17px", color: CYAN };
+    const statStartY = panelY + 70, lineH = 30, labelX = panelX + 28, valueX = panelX + panelW - 28;
 
+    const streakCol = maxStreak >= 12 ? "#ff00ff" : maxStreak >= 8 ? "#ff4400" : maxStreak >= 5 ? "#ff8800" : maxStreak >= 3 ? "#ffcc00" : CYAN;
     type StatRow = [string, string, Phaser.Types.GameObjects.Text.TextStyle, boolean?, number?];
     const rows: StatRow[] = [
-      ["Final Score:",        `0`,            { fontFamily: "monospace", fontSize: "19px", color: GOLD, fontStyle: "bold" }, true, score],
+      ["Final Score:",        `0`,            { fontFamily: UI_MONO, fontSize: "19px", color: GOLD, fontStyle: "bold" }, true, score],
+      ["Victory Bonus:",      `+${VICTORY_BONUS}`, { fontFamily: UI_MONO, fontSize: "17px", color: "#00ff88", fontStyle: "bold" }],
       ["Waves Survived:",     `${wave}`,      statStyle],
       ["Machines Destroyed:", `${kills}`,     statStyle],
-      ["Best Combo:",         `${maxCombo}x`, { fontFamily: "monospace", fontSize: "17px", color: maxCombo >= 10 ? "#ff00ff" : maxCombo >= 5 ? "#ff6600" : CYAN }],
+      ["Best Combo:",         `${maxCombo}x`, { fontFamily: UI_MONO, fontSize: "17px", color: maxCombo >= 10 ? "#ff00ff" : maxCombo >= 5 ? "#ff6600" : CYAN }],
       ["Scrap Collected:",    `${scrap}`,     statStyle],
+      ["Best Streak:",        `${maxStreak}`, { fontFamily: UI_MONO, fontSize: "17px", color: streakCol }],
     ];
 
     rows.forEach(([label, value, style, isScore, target], i) => {
@@ -181,7 +183,14 @@ export class VictoryScene extends Phaser.Scene {
 
     // ── Grade badge ──
     const gradeHex = `#${gradeColor.toString(16).padStart(6, "0")}`;
-    const badgeX = panelX + panelW - 50, badgeY = panelY + panelH / 2 + 15;
+    const badgeCardX = panelX + panelW + 28;
+    const badgeCardY = panelY;
+    const badgeCardW = 270;
+    const badgeCardH = panelH;
+    const badgePanel = this.add.graphics().setAlpha(0);
+    drawPanel(badgePanel, badgeCardX, badgeCardY, badgeCardW, badgeCardH, gradeColor, 0x03100c, 0.88, 8);
+    this.tweens.add({ targets: badgePanel, alpha: 1, duration: 280, delay: 560 });
+    const badgeX = badgeCardX + badgeCardW / 2, badgeY = badgeCardY + 116;
 
     const badgeGfx = this.add.graphics().setAlpha(0).setScale(0);
     badgeGfx.lineStyle(3, gradeColor, 0.6);
@@ -190,13 +199,17 @@ export class VictoryScene extends Phaser.Scene {
     badgeGfx.strokeCircle(badgeX, badgeY, 60);
 
     const gradeTxt = this.add.text(badgeX, badgeY, grade, {
-      fontFamily: "monospace", fontSize: "80px", color: gradeHex,
+      fontFamily: UI_FONT, fontSize: "80px", color: gradeHex,
       fontStyle: "bold", stroke: "#000000", strokeThickness: 6,
     }).setOrigin(0.5).setAlpha(0).setScale(0);
+    const gradeLabel = this.add.text(badgeX, badgeY + 76, "PERFORMANCE GRADE", {
+      fontFamily: UI_FONT, fontSize: "11px", color: GREEN, fontStyle: "bold",
+    }).setOrigin(0.5).setAlpha(0);
 
     this.tweens.add({
       targets: [gradeTxt, badgeGfx], alpha: 1, scale: 1, duration: 400, delay: 1200, ease: "Back.easeOut",
       onComplete: () => {
+        this.tweens.add({ targets: gradeLabel, alpha: 1, duration: 250 });
         this.tweens.add({ targets: gradeTxt, scale: { from: 1.05, to: 0.95 }, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
       },
     });
@@ -205,8 +218,8 @@ export class VictoryScene extends Phaser.Scene {
     let extraGap = 0;
     if (isNewRecord) {
       extraGap = 32;
-      const rec = this.add.text(cx, panelY + panelH + 14, "★  NEW  RECORD!  ★", {
-        fontFamily: "monospace", fontSize: "18px", color: GOLD, fontStyle: "bold",
+      const rec = this.add.text(panelCx, panelY + panelH + 14, "★  NEW  RECORD!  ★", {
+        fontFamily: UI_FONT, fontSize: "18px", color: GOLD, fontStyle: "bold",
         stroke: "#000000", strokeThickness: 3,
         shadow: { offsetX: 0, offsetY: 0, color: "#ffcc00", blur: 10, fill: true },
       }).setOrigin(0.5);
@@ -214,35 +227,33 @@ export class VictoryScene extends Phaser.Scene {
     }
 
     // ── Leaderboard panel ──
-    const lbY = panelY + panelH + extraGap + 8, lbH = 102;
-    gfx.fillStyle(0x040a02, 0.75);
-    gfx.fillRoundedRect(panelX, lbY, panelW, lbH, 4);
-    gfx.lineStyle(1, 0xffdd00, 0.3);
-    gfx.strokeRoundedRect(panelX, lbY, panelW, lbH, 4);
+    const lbY = panelY + panelH + extraGap + 14, lbH = 104;
+    const lbGfx = this.add.graphics();
+    drawPanel(lbGfx, panelX, lbY, panelW + 298, lbH, 0x00ff88, 0x020806, 0.76, 8);
 
-    this.add.text(cx, lbY + 14, "── TOP SCORES ──", { fontFamily: "monospace", fontSize: "11px", color: DIM }).setOrigin(0.5);
+    this.add.text(panelX + 24, lbY + 18, "TOP SCORES", { fontFamily: UI_FONT, fontSize: "11px", color: GOLD, fontStyle: "bold" }).setOrigin(0, 0.5);
     if (top3.length === 0) {
-      this.add.text(cx, lbY + 55, "NO RECORDS YET", { fontFamily: "monospace", fontSize: "14px", color: DIM }).setOrigin(0.5);
+      this.add.text(panelCx, lbY + 58, "NO RECORDS YET", { fontFamily: UI_FONT, fontSize: "14px", color: DIM }).setOrigin(0.5);
     } else {
       const rowColors = [WHITE, "#888888", "#555555"];
       top3.forEach((e, i) => {
         const isMe = i === currentRunIdx;
         const col = isMe ? GOLD : rowColors[i];
         const prefix = isMe ? "►" : " ";
-        this.add.text(cx, lbY + 32 + i * 23,
+        this.add.text(panelX + 38 + i * 265, lbY + 58,
           `${prefix} #${i + 1}  ${String(e.score).padStart(6, "0")}  W${e.wave}  K${e.kills}  C${e.maxCombo}x`,
-          { fontFamily: "monospace", fontSize: "13px", color: col }
-        ).setOrigin(0.5);
+          { fontFamily: UI_MONO, fontSize: "13px", color: col }
+        ).setOrigin(0, 0.5);
       });
     }
 
     // ── Buttons ──
-    const btnY = lbY + lbH + 34;
-    this._buildButton(cx - 170, btnY, "▶  PLAY AGAIN", 0x00ff88, GREEN, "#aaffcc", () => this._playAgain());
-    this._buildButton(cx + 170, btnY, "⌂  MAIN MENU", 0x00ccff, CYAN, "#aaddff", () => this._mainMenu());
+    const btnY = Math.min(GAME_HEIGHT - 118, lbY + lbH + 44);
+    this._buildButton(cx - 170, btnY, "PLAY AGAIN", 0x00ff88, GREEN, "#aaffcc", () => this._playAgain());
+    this._buildButton(cx + 170, btnY, "MAIN MENU", 0x00ccff, CYAN, "#aaddff", () => this._mainMenu());
 
     // ── Wallet: sign score on-chain (Ethereum challenge) ──
-    this._buildWalletSignButton(cx, btnY + 56, score, wave);
+    this._buildWalletSignButton(cx, btnY + 54, score, wave);
 
     // ── Bottom status bar ──
     const barGfx = this.add.graphics().setDepth(5);
@@ -251,10 +262,10 @@ export class VictoryScene extends Phaser.Scene {
     barGfx.lineStyle(1, 0x00ff88, 0.25);
     barGfx.lineBetween(0, GAME_HEIGHT - 32, GAME_WIDTH, GAME_HEIGHT - 32);
     this.add.text(36, GAME_HEIGHT - 16, "[ SPACE ] PLAY AGAIN   [ ESC ] MAIN MENU", {
-      fontFamily: "monospace", fontSize: "11px", color: "#336622",
+      fontFamily: UI_MONO, fontSize: "11px", color: "#336622",
     }).setOrigin(0, 0.5).setDepth(6);
     this.add.text(GAME_WIDTH - 36, GAME_HEIGHT - 16, "SCRAP ARENA  //  VICTORY", {
-      fontFamily: "monospace", fontSize: "11px", color: "#224400",
+      fontFamily: UI_MONO, fontSize: "11px", color: "#224400",
     }).setOrigin(1, 0.5).setDepth(6);
 
     // Keyboard
@@ -264,13 +275,15 @@ export class VictoryScene extends Phaser.Scene {
     });
 
     // Scanline animation
-    this.time.addEvent({
+    this.scanlineTimer = this.time.addEvent({
       delay: 60, loop: true, callback: () => {
         this.scanOffset = (this.scanOffset + 2) % 8;
         this.scanGfx?.clear();
         this._drawScanlines();
       },
     });
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this._cleanupTimers());
   }
 
   private _buildWalletSignButton(x: number, y: number, score: number, wave: number): void {
@@ -290,8 +303,9 @@ export class VictoryScene extends Phaser.Scene {
     draw(false, wallet.isConnected);
 
     const txt = this.add.text(x, y, label, {
-      fontFamily: "monospace", fontSize: "13px", color: wallet.isConnected ? "#00ff88" : "#ffcc00",
+      fontFamily: UI_FONT, fontSize: "13px", color: wallet.isConnected ? "#00ff88" : "#ffcc00",
     }).setOrigin(0.5).setDepth(11);
+    constrainTextBlock(txt, 300, 1, 10);
 
     const hit = this.add.zone(x, y, 320, 30)
       .setInteractive({ useHandCursor: true }).setDepth(12).setScrollFactor(0);
@@ -312,26 +326,31 @@ export class VictoryScene extends Phaser.Scene {
   }
 
   private _buildButton(x: number, y: number, label: string, borderCol: number, borderHex: string, hoverHex: string, onClick: () => void): void {
-    const W = 280, H = 48;
+    const W = 280, H = 54;
     const bg = this.add.graphics().setDepth(10);
     const drawBg = (hover: boolean) => {
       bg.clear();
-      bg.fillStyle(hover ? borderCol : 0x040a02, hover ? 0.2 : 0.9);
-      bg.fillRoundedRect(x - W / 2, y - H / 2, W, H, 4);
-      bg.lineStyle(2, borderCol, hover ? 1 : 0.6);
-      bg.strokeRoundedRect(x - W / 2, y - H / 2, W, H, 4);
-      const ct = 8;
-      bg.lineStyle(2, borderCol, 1);
-      [[x - W / 2, y - H / 2], [x + W / 2 - ct, y - H / 2], [x - W / 2, y + H / 2 - ct], [x + W / 2 - ct, y + H / 2 - ct]].forEach(([bx, by]) => bg.strokeRect(bx, by, ct, ct));
+      bg.fillStyle(hover ? borderCol : 0x04100b, hover ? 0.24 : 0.90);
+      bg.fillRoundedRect(x - W / 2, y - H / 2, W, H, 8);
+      bg.lineStyle(2, hover ? 0xffffff : borderCol, hover ? 0.92 : 0.68);
+      bg.strokeRoundedRect(x - W / 2, y - H / 2, W, H, 8);
+      bg.lineStyle(1, borderCol, hover ? 0.5 : 0.22);
+      bg.lineBetween(x - W / 2 + 22, y, x - 62, y);
+      bg.lineBetween(x + 62, y, x + W / 2 - 22, y);
     };
     drawBg(false);
     const txt = this.add.text(x, y, label, {
-      fontFamily: "monospace", fontSize: "18px", color: borderHex, fontStyle: "bold",
+      fontFamily: UI_FONT, fontSize: "18px", color: borderHex, fontStyle: "bold",
     }).setOrigin(0.5).setDepth(11);
+    fitTextWidth(txt, W - 24, 12);
     const hit = this.add.zone(x, y, W, H).setInteractive({ useHandCursor: true }).setDepth(12).setScrollFactor(0);
     hit.on("pointerover", () => { drawBg(true); txt.setColor(hoverHex); });
     hit.on("pointerout", () => { drawBg(false); txt.setColor(borderHex); });
-    hit.on("pointerdown", onClick);
+    hit.on("pointerdown", () => {
+      hit.disableInteractive();
+      txt.setColor(hoverHex);
+      onClick();
+    });
   }
 
   private _drawScanlines(): void {
@@ -371,42 +390,41 @@ export class VictoryScene extends Phaser.Scene {
   }
 
   private _playAgain = (): void => {
-    if (this.transitioning) return;
-    this.transitioning = true;
-    this._cleanupTimers();
-    this.cameras.main.fadeOut(600, 0, 0, 0);
-    let switched = false;
-    const go = (): void => {
-      if (switched) return;
-      switched = true;
-      this.scene.start("MainScene");
-    };
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      go();
-    });
-    this.time.delayedCall(850, go);
+    this._transitionTo("MainScene");
   };
 
   private _mainMenu = (): void => {
+    this._transitionTo("TitleScene");
+  };
+
+  private _transitionTo(sceneKey: "MainScene" | "TitleScene"): void {
     if (this.transitioning) return;
     this.transitioning = true;
+    this.input.enabled = false;
     this._cleanupTimers();
-    this.cameras.main.fadeOut(600, 0, 0, 0);
+    AudioManager.instance.stopMusic();
+
+    const camera = this.cameras.main;
+    camera.resetFX();
+
     let switched = false;
     const go = (): void => {
       if (switched) return;
       switched = true;
-      this.scene.start("TitleScene");
+      camera.resetFX();
+      this.scene.start(sceneKey);
     };
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      go();
-    });
-    this.time.delayedCall(850, go);
-  };
+    this.time.delayedCall(30, go);
+    window.setTimeout(go, 180);
+  }
 
   private _cleanupTimers(): void {
     this.particleTimer?.destroy();
+    this.particleTimer = undefined;
     this.confettiTimer?.destroy();
+    this.confettiTimer = undefined;
+    this.scanlineTimer?.destroy();
+    this.scanlineTimer = undefined;
     this.input.keyboard?.off("keydown-SPACE", this._playAgain, this);
     this.input.keyboard?.off("keydown-ESC", this._mainMenu, this);
   }

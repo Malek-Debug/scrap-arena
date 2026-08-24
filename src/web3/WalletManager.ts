@@ -7,7 +7,7 @@
  * we sign a score message with the wallet (gasless, off-chain proof).
  */
 
-import { BrowserProvider, type Eip1193Provider } from "ethers";
+import type { Eip1193Provider } from "ethers";
 import { SecureStore } from "../core/SecureStore";
 import { IntegrityGuard } from "../core/IntegrityGuard";
 
@@ -30,7 +30,8 @@ export class WalletManager {
 
   private _state: WalletState = { status: "disconnected" };
   private _listeners: WalletListener[] = [];
-  private _provider: BrowserProvider | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _provider: any | null = null;
 
   get state(): WalletState { return this._state; }
   get isConnected(): boolean { return this._state.status === "connected"; }
@@ -65,6 +66,7 @@ export class WalletManager {
     this._emit({ status: "connecting" });
 
     try {
+      const { BrowserProvider } = await import("ethers");
       const ethProvider = (window as unknown as { ethereum: Eip1193Provider }).ethereum;
       this._provider = new BrowserProvider(ethProvider);
       await this._provider.send("eth_requestAccounts", []);

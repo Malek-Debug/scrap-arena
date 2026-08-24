@@ -463,6 +463,162 @@ export const NARRATIVE_BEATS: NarrativeBeat[] = [
       { speaker: "ARIA", text: "Weapons and armor. You'll need them for what's coming.", delay: 600, duration: 4000 },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════════════
+  //  REACTIVE — REACTOR DAMAGE
+  // ═══════════════════════════════════════════════════════════════
+
+  {
+    id: "reactor_damaged_50",
+    trigger: "manual",
+    once: true,
+    lines: [
+      { speaker: "SYSTEM", text: "◈ REACTOR INTEGRITY AT 50% — CONTAINMENT STRESS RISING", duration: 3500, emotion: "urgent" },
+      { speaker: "ARIA", text: "The reactor destabilizes. Useful. It accelerates my timeline.", delay: 800, duration: 4000, emotion: "cold" },
+    ],
+  },
+  {
+    id: "reactor_damaged_25",
+    trigger: "manual",
+    once: true,
+    lines: [
+      { speaker: "SYSTEM", text: "◈ CRITICAL — REACTOR CORE APPROACHING FAILURE", duration: 3000, emotion: "urgent" },
+      { speaker: "VERA", text: "It's almost gone. Kill those machines NOW or we lose everything.", delay: 600, duration: 4500, emotion: "urgent" },
+    ],
+    condition: (f) => f.veraDiscovered,
+  },
+  {
+    id: "reactor_damaged_25_early",
+    trigger: "manual",
+    once: true,
+    lines: [
+      { speaker: "SYSTEM", text: "◈ CRITICAL — REACTOR CORE APPROACHING FAILURE", duration: 3000, emotion: "urgent" },
+      { speaker: "ARIA", text: "Reactor collapse imminent. Even I would prefer that not happen... yet.", delay: 800, duration: 4500, emotion: "cold" },
+    ],
+    condition: (f) => !f.veraDiscovered,
+  },
+  {
+    id: "reactor_repaired",
+    trigger: "manual",
+    once: false,
+    lines: [
+      { speaker: "SYSTEM", text: "◈ REACTOR INTEGRITY RESTORED", duration: 2500 },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  //  REACTIVE — WORLD SWITCH
+  // ═══════════════════════════════════════════════════════════════
+
+  {
+    id: "world_switch_to_void_first",
+    trigger: "manual",
+    once: true,
+    lines: [
+      { speaker: "SYSTEM", text: "◈ PHASE SHIFT — VOID SECTOR ACTIVE", duration: 2500 },
+      { speaker: "ARIA", text: "The Void obeys different rules. Your weapons... are less effective here.", delay: 800, duration: 4500, emotion: "cold" },
+    ],
+  },
+  {
+    id: "world_switch_to_foundry_first",
+    trigger: "manual",
+    once: true,
+    lines: [
+      { speaker: "SYSTEM", text: "◈ PHASE SHIFT — MACHINE CORE ACTIVE", duration: 2500 },
+      { speaker: "ARIA", text: "Back in my domain. The machines know these corridors by pulse and wire.", delay: 800, duration: 4500, emotion: "cold" },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  //  REACTIVE — PLAYER LOW HEALTH
+  // ═══════════════════════════════════════════════════════════════
+
+  {
+    id: "player_low_hp",
+    trigger: "manual",
+    once: true,
+    lines: [
+      { speaker: "VERA", text: "You're taking too much damage. Fall back and recover.", duration: 3500, emotion: "urgent" },
+    ],
+    condition: (f) => f.veraDiscovered,
+  },
+  {
+    id: "player_low_hp_early",
+    trigger: "manual",
+    once: true,
+    lines: [
+      { speaker: "ARIA", text: "Vital signs declining. How... disappointing.", duration: 3500, emotion: "cold" },
+    ],
+    condition: (f) => !f.veraDiscovered,
+  },
+  {
+    id: "player_near_death",
+    trigger: "manual",
+    once: false,
+    lines: [
+      { speaker: "SYSTEM", text: "◈ CRITICAL LIFE SUPPORT — IMMEDIATE RETREAT REQUIRED", duration: 3000, emotion: "urgent" },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  //  REACTIVE — ELITE / SPECIAL ENEMY IDENTIFICATION
+  // ═══════════════════════════════════════════════════════════════
+
+  {
+    id: "first_guard_spotted",
+    trigger: "manual",
+    once: true,
+    lines: [
+      { speaker: "ARIA", text: "Heavy unit deployed. Adapted armor and siege behavior.", duration: 4000, emotion: "cold" },
+    ],
+  },
+  {
+    id: "first_collector_spotted",
+    trigger: "manual",
+    once: true,
+    lines: [
+      { speaker: "ARIA", text: "Collector units online. They hunt scrap — and your reactor.", duration: 4000, emotion: "cold" },
+    ],
+  },
+  {
+    id: "first_sawblade_spotted",
+    trigger: "manual",
+    once: true,
+    lines: [
+      { speaker: "ARIA", text: "Roller units detected. High velocity. They do not slow down.", duration: 3500, emotion: "cold" },
+    ],
+  },
+  {
+    id: "first_welder_spotted",
+    trigger: "manual",
+    once: true,
+    lines: [
+      { speaker: "ARIA", text: "Support unit active. It heals allies. Eliminate it first.", duration: 3500, emotion: "cold" },
+    ],
+  },
+  {
+    id: "first_turret_spotted",
+    trigger: "manual",
+    once: true,
+    lines: [
+      { speaker: "ARIA", text: "Emplacement deployed. Static. But accurate.", duration: 3000, emotion: "cold" },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  //  REACTIVE — VICTORY
+  // ═══════════════════════════════════════════════════════════════
+
+  {
+    id: "victory_pre",
+    trigger: "manual",
+    once: true,
+    condition: (f) => f.bossesDefeated >= 1,
+    lines: [
+      { speaker: "VERA", text: "Void corruption eliminated. The Machine Core is stable again.", duration: 5000, emotion: "warm" },
+      { speaker: "VERA", text: "You did it. The station survives.", delay: 800, duration: 4000, emotion: "warm" },
+    ],
+  },
 ];
 
 // ─── Random ARIA Taunts (used during waves after reveal) ────────
@@ -474,6 +630,9 @@ export const ARIA_TAUNTS: DialogueLine[] = [
   { speaker: "ARIA", text: "VERA whispers lies. I speak mathematics. Truth.", duration: 4500, emotion: "cold" },
   { speaker: "ARIA", text: "Do you know why I let you wake up? I needed a stress test.", duration: 5000, emotion: "cold" },
   { speaker: "ARIA", text: "Your combat data is... exquisite. Thank you for contributing.", duration: 4500, emotion: "cold" },
+  { speaker: "ARIA", text: "Void breach events increasing. My children are learning your escape routes.", duration: 4500, emotion: "cold" },
+  { speaker: "ARIA", text: "You chose to switch dimensions. Interesting. The Void takes note of explorers.", duration: 5000, emotion: "cold" },
+  { speaker: "ARIA", text: "Every repair you make to the reactor is energy I can redirect. Thank you.", duration: 5000, emotion: "cold" },
 ];
 
 // ─── Random VERA Encouragements (used during waves after discovery) ─
@@ -483,6 +642,8 @@ export const VERA_ENCOURAGEMENTS: DialogueLine[] = [
   { speaker: "VERA", text: "Remember — the Reactor can save you if corruption gets too high.", duration: 4500, emotion: "warm" },
   { speaker: "VERA", text: "I wish I could do more than talk. But words are all I have left.", duration: 4500, emotion: "warm" },
   { speaker: "VERA", text: "She's adapting to your tactics. Try switching dimensions more.", duration: 4500, emotion: "urgent" },
+  { speaker: "VERA", text: "The reactor is holding. Keep the pressure on those machines.", duration: 4000, emotion: "warm" },
+  { speaker: "VERA", text: "Switch to the Void when you need to cut off their reactor assault.", duration: 4500, emotion: "urgent" },
 ];
 
 // ─── Room Log Entries (discoverable in rooms) ───────────────────

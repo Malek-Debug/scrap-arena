@@ -2,7 +2,8 @@ import Phaser from "phaser";
 import { ShootSkill } from "../ai/skills/ShootSkill";
 import { SteeringBehaviors } from "../ai/SteeringBehaviors";
 import type { PlayerPredictor } from "../ai/PlayerPredictor";
-import { WORLD_WIDTH, WORLD_HEIGHT } from "../core";
+import { WORLD_WIDTH, WORLD_HEIGHT, GAME_WIDTH, GAME_HEIGHT } from "../core";
+import { Juice } from "../rendering";
 
 let _nextBossId = 9000;
 
@@ -39,9 +40,16 @@ export class BossAgent {
   private _missileTimer = 0;
   private _orbitAngle = 0;
   private _prevPhase: 1 | 2 | 3 | 4 = 1;
+  private _dimSwitchTimer = 0;
+
+  worldType: "FOUNDRY" | "CIRCUIT" = "FOUNDRY";
+  onDimensionSwitch?: (world: "FOUNDRY" | "CIRCUIT") => void;
 
   /** Injected by MainScene after spawn — enables adaptive lead shots */
   predictor: PlayerPredictor | null = null;
+
+  /** Optional callback fired just before each attack burst — wired to HUD warning by MainScene. */
+  onFire?: () => void;
 
   // Mines stored as scene objects for collision detection
   readonly mines: { x: number; y: number; gfx: Phaser.GameObjects.Arc }[] = [];
@@ -79,6 +87,19 @@ export class BossAgent {
   bindSprite(sprite: Phaser.Physics.Arcade.Sprite): void {
     this.sprite = sprite;
     sprite.setData("agentId", this.id);
+    // Entrance: materialize from nothing with a scale punch
+    sprite.setScale(0.3).setAlpha(0);
+    if (this._scene) {
+      this._scene.tweens.add({
+        targets: sprite,
+        scaleX: 1.5, scaleY: 1.5,
+        alpha: 1,
+        duration: 700,
+        ease: "Back.easeOut",
+      });
+      // Radial arrival burst at spawn
+      this._phaseExplosion(2, 0xff2200, 12, 500);
+    }
   }
 
   getPosition(): { x: number; y: number } {
@@ -164,6 +185,7 @@ export class BossAgent {
 
     if (this._shootTimer >= cooldown && this._scene) {
       this._shootTimer = 0;
+      this.onFire?.();
 
       // Phases 2+: proper ballistic intercept. Uses BULLET SPEED and distance
       // to compute exactly how far to lead, then iterates once to refine the
@@ -233,13 +255,24 @@ export class BossAgent {
       }
     }
 
-    // ── Periodic screen shake ─────────────────────────────
+    // ── Periodic screen shake — via Juice so phase-transition priority survives ─
     if (p >= 3 && this._scene) {
       this._shakeTimer += delta * 1000;
       const shakeInterval = p === 4 ? 1200 : 2000;
       if (this._shakeTimer >= shakeInterval) {
         this._shakeTimer = 0;
-        this._scene.cameras.main.shake(180, p === 4 ? 0.013 : 0.008);
+        Juice.screenShake(this._scene, p === 4 ? 0.013 : 0.008, 180);
+      }
+    }
+
+    // ── Boss dimension shift (phase 3+): forces player to switch ──────
+    if (p >= 3 && this._scene) {
+      this._dimSwitchTimer += delta * 1000;
+      const switchInterval = p === 4 ? 5000 : 7000;
+      if (this._dimSwitchTimer >= switchInterval) {
+        this._dimSwitchTimer = 0;
+        this.worldType = this.worldType === "FOUNDRY" ? "CIRCUIT" : "FOUNDRY";
+        this.onDimensionSwitch?.(this.worldType);
       }
     }
   }
@@ -316,7 +349,7 @@ export class BossAgent {
     ShootSkill.fireImmediate(this.posX, this.posY, aimAngle, {
       damage: 25, range: 900, speed: missileSpeed, tint: 0xff44aa, ownerId: this.id,
     });
-    this._scene.cameras.main.shake(140, 0.007);
+    Juice.screenShake(this._scene, 0.007, 140);
   }
 
   private _dropMine(x: number, y: number): void {
@@ -348,44 +381,177 @@ export class BossAgent {
     });
   }
 
+  /**
+   * Reusable radial burst: N staggered shockwave rings + outward sparks.
+   * All presentation — no gameplay effect.
+   */
+  private _phaseExplosion(
+    rings: number,
+    color: number,
+    sparks: number,
+    baseDuration = 600,
+  ): void {
+    if (!this._scene) return;
+    for (let i = 0; i < rings; i++) {
+      const delay = i * 80;
+      const startRadius = 12 + i * 8;
+      this._scene.time.delayedCall(delay, () => {
+        if (!this._scene) return;
+        const ring = this._scene.add
+          .circle(this.posX, this.posY, startRadius, color, i === 0 ? 0.55 : 0.35)
+          .setDepth(52).setBlendMode(Phaser.BlendModes.ADD);
+        ring.setStrokeStyle(2, color, 0.85);
+        this._scene.tweens.add({
+          targets: ring,
+          scaleX: 7 + i * 1.5, scaleY: 7 + i * 1.5,
+          alpha: 0,
+          duration: baseDuration + i * 100,
+          ease: "Expo.easeOut",
+          onComplete: () => ring.destroy(),
+        });
+      });
+    }
+    for (let i = 0; i < sparks; i++) {
+      const angle = (i / sparks) * Math.PI * 2;
+      const dist = Phaser.Math.Between(40, 130);
+      const spark = this._scene.add
+        .circle(this.posX, this.posY, 2 + Math.random() * 2, color, 1)
+        .setDepth(15).setBlendMode(Phaser.BlendModes.ADD);
+      this._scene.tweens.add({
+        targets: spark,
+        x: this.posX + Math.cos(angle) * dist,
+        y: this.posY + Math.sin(angle) * dist,
+        alpha: 0, scaleX: 0.3, scaleY: 0.3,
+        duration: 600 + Math.random() * 300,
+        ease: "Quad.easeOut",
+        onComplete: () => spark.destroy(),
+      });
+    }
+  }
+
   private _onPhaseTransition(newPhase: 1 | 2 | 3 | 4): void {
     if (!this._scene || !this.sprite) return;
 
-    // Flash and scale burst on phase transition
-    const colors: Record<number, number> = { 1: 0xff4400, 2: 0xff0000, 3: 0xff00ff, 4: 0xffffff };
-    this.sprite.setTint(colors[newPhase] ?? 0xffffff);
-
-    this._scene.time.delayedCall(300, () => {
-      this.sprite?.clearTint();
-    });
-
-    // Shockwave ring
-    const ring = this._scene.add.circle(this.posX, this.posY, 20, colors[newPhase] ?? 0xff0000, 0.7)
-      .setDepth(52).setBlendMode(Phaser.BlendModes.ADD);
-    this._scene.tweens.add({
-      targets: ring, scaleX: 8, scaleY: 8, alpha: 0, duration: 600,
-      onComplete: () => ring.destroy(),
-    });
-
-    // Phase label
-    const labels: Record<number, string> = {
-      2: "PHASE II — ORBITAL",
-      3: "PHASE III — FRENZY",
-      4: "⚠ BERSERK MODE ⚠",
+    const colors: Record<number, number> = {
+      1: 0xff4400,
+      2: 0xff0000,
+      3: 0xff00ff,
+      4: 0xffffff,
     };
-    if (labels[newPhase]) {
-      const txt = this._scene.add.text(this.posX, this.posY - 60, labels[newPhase], {
-        fontFamily: "monospace", fontSize: "18px",
-        color: newPhase === 4 ? "#ffffff" : "#ff4400",
-        stroke: "#000", strokeThickness: 4,
-      }).setOrigin(0.5).setDepth(120);
+    const color = colors[newPhase] ?? 0xffffff;
+
+    // Per-phase escalating config
+    const cfg: Record<number, {
+      rings: number; sparks: number; shakeAmt: number; shakeDur: number;
+      slowScale: number; slowDur: number; labelSize: string; flashDur: number;
+    }> = {
+      2: { rings: 2, sparks: 10, shakeAmt: 0.020, shakeDur: 350, slowScale: 0.35, slowDur: 500,  labelSize: "22px", flashDur: 0 },
+      3: { rings: 3, sparks: 16, shakeAmt: 0.028, shakeDur: 450, slowScale: 0.20, slowDur: 700,  labelSize: "26px", flashDur: 0 },
+      4: { rings: 5, sparks: 24, shakeAmt: 0.045, shakeDur: 600, slowScale: 0.08, slowDur: 900,  labelSize: "32px", flashDur: 120 },
+    };
+    const c = cfg[newPhase];
+    if (!c) return; // Phase 1 has no incoming transition
+
+    // ── Sprite flash + scale punch ─────────────────────────────────────────
+    this.sprite.setTintFill(color);
+    const baseScaleX = this.sprite.scaleX;
+    const baseScaleY = this.sprite.scaleY;
+    this._scene.tweens.add({
+      targets: this.sprite,
+      scaleX: baseScaleX * (1 + 0.08 * newPhase),
+      scaleY: baseScaleY * (1 + 0.08 * newPhase),
+      duration: 90, yoyo: true, ease: "Back.easeOut",
+      onComplete: () => { if (this.sprite?.active) this.sprite.clearTint(); },
+    });
+
+    // ── Screen flash for phase 4 ──────────────────────────────────────────
+    if (c.flashDur > 0) {
+      const flash = this._scene.add
+        .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0xffffff, 0.38)
+        .setScrollFactor(0).setDepth(130);
       this._scene.tweens.add({
-        targets: txt, y: txt.y - 60, alpha: 0, duration: 1400,
-        onComplete: () => txt.destroy(),
+        targets: flash, alpha: 0,
+        duration: c.flashDur, ease: "Quad.easeOut",
+        onComplete: () => flash.destroy(),
       });
     }
 
-    this._scene.cameras.main.shake(300, 0.018);
+    // ── Radial rings + sparks ─────────────────────────────────────────────
+    this._phaseExplosion(c.rings, color, c.sparks);
+
+    // ── Shake + slow-mo — route through Juice so priority tracking applies ─
+    // Phase transitions are always strong; other calls (per-hit, missiles)
+    // won't trample an active phase shake.
+    Juice.screenShake(this._scene, c.shakeAmt, c.shakeDur);
+    Juice.slowMo(this._scene, c.slowScale, c.slowDur);
+
+    // ── Phase label — escalated styling ──────────────────────────────────
+    const labels: Record<number, string> = {
+      2: "— PHASE II  ORBITAL —",
+      3: "— PHASE III  FRENZY —",
+      4: "⚠  BERSERK MODE  ⚠",
+    };
+    const label = labels[newPhase];
+    if (label) {
+      const fontFamily = newPhase === 4 ? "monospace" : "monospace";
+      const isPhase4 = newPhase === 4;
+      const txt = this._scene.add.text(
+        GAME_WIDTH / 2, GAME_HEIGHT / 2 - 115,
+        label,
+        {
+          fontFamily,
+          fontSize: c.labelSize,
+          color: isPhase4 ? "#ff4444" : `#${color.toString(16).padStart(6, "0")}`,
+          fontStyle: "bold",
+          stroke: "#000000",
+          strokeThickness: isPhase4 ? 6 : 4,
+        },
+      ).setOrigin(0.5).setScrollFactor(0).setDepth(122).setScale(0.4).setAlpha(0);
+
+      // Scale-in punch, hold, then drift up and fade
+      this._scene.tweens.add({
+        targets: txt,
+        scaleX: isPhase4 ? 1.15 : 1.0,
+        scaleY: isPhase4 ? 1.15 : 1.0,
+        alpha: 1,
+        duration: 180,
+        ease: "Back.easeOut",
+        onComplete: () => {
+          this._scene?.tweens.add({
+            targets: txt,
+            y: txt.y - 50,
+            alpha: 0,
+            scaleX: isPhase4 ? 0.9 : 0.85,
+            scaleY: isPhase4 ? 0.9 : 0.85,
+            duration: isPhase4 ? 1800 : 1400,
+            delay: 300,
+            ease: "Power2",
+            onComplete: () => txt.destroy(),
+          });
+        },
+      });
+
+      // Phase 4: second smaller warning — placed below centre to avoid the collision zone
+      if (isPhase4) {
+        const sub = this._scene.add.text(
+          GAME_WIDTH / 2, GAME_HEIGHT / 2 + 80,
+          "ALL SYSTEMS CRITICAL",
+          {
+            fontFamily: "monospace", fontSize: "14px",
+            color: "#ff8844", stroke: "#000000", strokeThickness: 3,
+          },
+        ).setOrigin(0.5).setScrollFactor(0).setDepth(122).setAlpha(0);
+        this._scene.tweens.add({
+          targets: sub, alpha: 1, duration: 250, delay: 200,
+          onComplete: () => {
+            this._scene?.tweens.add({
+              targets: sub, alpha: 0, y: sub.y - 30, duration: 1200, delay: 400,
+              onComplete: () => sub.destroy(),
+            });
+          },
+        });
+      }
+    }
   }
 
   // ── Ballistic intercept helpers ─────────────────────────

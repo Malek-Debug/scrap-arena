@@ -41,7 +41,7 @@ export function createGameConfig(scenes: Phaser.Types.Scenes.SceneType[]): Phase
       pixelArt: true,
       antialias: false,
       roundPixels: true,
-      powerPreference: "high-performance",
+      powerPreference: "default",
       transparent: false,
       batchSize: 4096,
       maxLights: 4,

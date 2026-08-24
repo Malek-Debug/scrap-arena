@@ -1,8 +1,6 @@
 import Phaser from "phaser";
 
-import { WORLD_WIDTH, WORLD_HEIGHT, CELL_W, CELL_H } from "./GameConfig";
-const GAME_WIDTH = WORLD_WIDTH;
-const GAME_HEIGHT = WORLD_HEIGHT;
+import { CELL_W, CELL_H } from "./GameConfig";
 
 interface LaserFence {
   gfx: Phaser.GameObjects.Graphics;
@@ -117,18 +115,6 @@ export class ArenaHazards {
     }
 
     // Crushing pistons — disabled (they covered doorways and blocked rooms)
-  }
-
-  private safeX(): number {
-    const x = Phaser.Math.Between(120, GAME_WIDTH - 120);
-    if (Math.abs(x - GAME_WIDTH / 2) < 100) return x < GAME_WIDTH / 2 ? x - 100 : x + 100;
-    return x;
-  }
-
-  private safeY(): number {
-    const y = Phaser.Math.Between(100, GAME_HEIGHT - 100);
-    if (Math.abs(y - GAME_HEIGHT / 2) < 80) return y < GAME_HEIGHT / 2 ? y - 80 : y + 80;
-    return y;
   }
 
   /**

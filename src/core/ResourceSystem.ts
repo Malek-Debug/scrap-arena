@@ -16,6 +16,7 @@ export interface ResourceNodeData {
 export class ResourceSystem {
   private static _instance: ResourceSystem;
   private nodes: Map<number, ResourceNodeData> = new Map();
+  private respawnTimers: ReturnType<typeof setTimeout>[] = [];
   private nextId = 0;
 
   static get instance(): ResourceSystem {
@@ -39,10 +40,11 @@ export class ResourceSystem {
     if (!node || !node.active) return 0;
     node.active = false;
     SystemsBus.instance.emit("resource:harvested", node);
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       node.active = true;
       SystemsBus.instance.emit("resource:respawned", node);
     }, node.respawnMs);
+    this.respawnTimers.push(timer);
     return node.value;
   }
 
@@ -63,6 +65,11 @@ export class ResourceSystem {
   }
 
   clear(): void {
+    for (const timer of this.respawnTimers) {
+      clearTimeout(timer);
+    }
+    this.respawnTimers = [];
     this.nodes.clear();
+    this.nextId = 0;
   }
 }

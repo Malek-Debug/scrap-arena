@@ -1,5 +1,12 @@
 import { SystemsBus } from "./SystemsBus";
 
+function _shuffle<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
 export interface UpgradeOption {
   id: string;
   name: string;
@@ -7,6 +14,7 @@ export interface UpgradeOption {
   cost: number;
   maxLevel: number;
   currentLevel: number;
+  minWave?: number;  // earliest wave this upgrade can appear in the shop
   apply: () => void;
 }
 
@@ -19,12 +27,12 @@ export interface PlayerStats {
   pickupRange: number;
 }
 
-const DEFAULT_STATS: Readonly<PlayerStats> = {
+export const DEFAULT_STATS: Readonly<PlayerStats> = {
   speed: 200,
   damage: 10,
   maxHp: 100,
-  fireRate: 400,
-  projectileSpeed: 400,
+  fireRate: 280,
+  projectileSpeed: 520,
   pickupRange: 100,
 };
 
@@ -34,6 +42,7 @@ export class UpgradeSystem {
   scrap = 0;
   stats: PlayerStats;
   unlockedThemes: Set<string> = new Set(["hub", "power", "armory"]);
+  currentWave = 1;  // set by MainScene before opening the shop
   private levels: Record<string, number> = {};
 
   constructor(playerStats: PlayerStats) {
@@ -48,8 +57,23 @@ export class UpgradeSystem {
 
   getAvailableUpgrades(): UpgradeOption[] {
     const defs = this.upgradeDefinitions();
-    // Rooms auto-unlock on wave clear — exclude card_ upgrades from shop
-    return defs.filter((u) => u.currentLevel < u.maxLevel && !u.id.startsWith("card_"));
+    const available = defs.filter((u) => {
+      if (u.currentLevel >= u.maxLevel) return false;
+      if (u.minWave !== undefined && this.currentWave < u.minWave) return false;
+      return true;
+    });
+    _shuffle(available);
+    return available.slice(0, 5);
+  }
+
+  /** Called by WaveOrchestrator when a room auto-unlocks on wave clear.
+   *  Marks the card as obtained so it won't appear in the shop as purchasable. */
+  markCardObtained(theme: string): void {
+    const key = `card_${theme}` as keyof typeof this.levels;
+    if (key in this.levels) {
+      this.levels[key] = 1;
+    }
+    this.unlockedThemes.add(theme);
   }
 
   tryPurchase(upgradeId: string): boolean {
@@ -80,12 +104,12 @@ export class UpgradeSystem {
       speed: 0,
       damage: 0,
       maxHp: 0,
-      fireRate: 0,
       pickupRange: 0,
       multiShot: 0,
       armor: 0,
       phaseMastery: 0,
       rapidFire: 0,
+      thermalReg: 0,
       card_factory: 0,
       card_server: 0,
       card_power: 0,
@@ -106,23 +130,11 @@ export class UpgradeSystem {
   private upgradeDefinitions(): UpgradeOption[] {
     return [
       {
-        id: "speed",
-        name: "Thruster Boost",
-        description: "+30 speed per level",
-        cost: 15 + this.lvl("speed") * 10,
-        maxLevel: 3,
-        currentLevel: this.lvl("speed"),
-        apply: () => {
-          this.stats.speed += 30;
-          this.levels.speed++;
-        },
-      },
-      {
         id: "damage",
         name: "Caliber Upgrade",
-        description: "+5 damage per level",
-        cost: 10 + this.lvl("damage") * 8,
-        maxLevel: 5,
+        description: `Hit harder, overheat faster\nDmg +5 (${this.stats.damage}→${this.stats.damage + 5}) | Heat +2/shot`,
+        cost: 12 + this.lvl("damage") * 10,
+        maxLevel: 4,
         currentLevel: this.lvl("damage"),
         apply: () => {
           this.stats.damage += 5;
@@ -130,9 +142,56 @@ export class UpgradeSystem {
         },
       },
       {
+        id: "thermalReg",
+        name: "Thermal Regulator",
+        description: `Cool faster, recover sooner\nCooling +8/s | Lockout -300ms`,
+        cost: 15 + this.lvl("thermalReg") * 12,
+        maxLevel: 3,
+        currentLevel: this.lvl("thermalReg"),
+        apply: () => {
+          this.levels.thermalReg++;
+        },
+      },
+      {
+        id: "rapidFire",
+        name: "Rapid Fire",
+        description: `Shoot faster, bullets fly further\nRate -30ms (${this.stats.fireRate}→${Math.max(MIN_FIRE_RATE, this.stats.fireRate - 30)}) | Spd +60`,
+        cost: 18 + this.lvl("rapidFire") * 14,
+        maxLevel: 3,
+        currentLevel: this.lvl("rapidFire"),
+        apply: () => {
+          this.stats.fireRate = Math.max(MIN_FIRE_RATE, this.stats.fireRate - 30);
+          this.stats.projectileSpeed += 60;
+          this.levels.rapidFire++;
+        },
+      },
+      {
+        id: "multiShot",
+        name: "Multi-Shot",
+        description: `Spread fire, great vs groups\nProjectiles +2 (${1 + this.lvl("multiShot") * 2}→${1 + (this.lvl("multiShot") + 1) * 2}) | Heat +3/shot`,
+        cost: 22 + this.lvl("multiShot") * 18,
+        maxLevel: 3,
+        currentLevel: this.lvl("multiShot"),
+        apply: () => {
+          this.levels.multiShot++;
+        },
+      },
+      {
+        id: "speed",
+        name: "Thruster Boost",
+        description: `Move & dash faster\nSpeed +35 (${this.stats.speed}→${this.stats.speed + 35}) | Dash +12%`,
+        cost: 15 + this.lvl("speed") * 10,
+        maxLevel: 3,
+        currentLevel: this.lvl("speed"),
+        apply: () => {
+          this.stats.speed += 35;
+          this.levels.speed++;
+        },
+      },
+      {
         id: "maxHp",
-        name: "Armor Plating",
-        description: "+25 maxHp per level",
+        name: "Hull Reinforcement",
+        description: `Tank more hits, heal on kills\nHP +25 (${this.stats.maxHp}→${this.stats.maxHp + 25}) | Kill heal +1`,
         cost: 20 + this.lvl("maxHp") * 12,
         maxLevel: 4,
         currentLevel: this.lvl("maxHp"),
@@ -142,189 +201,59 @@ export class UpgradeSystem {
         },
       },
       {
-        id: "fireRate",
-        name: "Rapid Servos",
-        description: "-60ms cooldown per level",
-        cost: 15 + this.lvl("fireRate") * 10,
-        maxLevel: 4,
-        currentLevel: this.lvl("fireRate"),
-        apply: () => {
-          this.stats.fireRate = Math.max(MIN_FIRE_RATE, this.stats.fireRate - 60);
-          this.levels.fireRate++;
-        },
-      },
-      {
-        id: "pickupRange",
-        name: "Magnet Array",
-        description: "+40 pickup range per level",
-        cost: 10 + this.lvl("pickupRange") * 5,
-        maxLevel: 3,
-        currentLevel: this.lvl("pickupRange"),
-        apply: () => {
-          this.stats.pickupRange += 40;
-          this.levels.pickupRange++;
-        },
-      },
-      {
-        id: "multiShot",
-        name: "Multi-Shot",
-        description: "Fire spread of projectiles (+2 per level)",
-        cost: 20 + this.lvl("multiShot") * 15,
-        maxLevel: 3,
-        currentLevel: this.lvl("multiShot"),
-        apply: () => {
-          this.levels.multiShot++;
-        },
-      },
-      {
         id: "armor",
         name: "Armor Plating",
-        description: "Reduce incoming damage by 15%",
+        description: `Take less damage from all sources\nDR +15% (${this.lvl("armor") * 15}%→${(this.lvl("armor") + 1) * 15}%)`,
         cost: 20 + this.lvl("armor") * 12,
         maxLevel: 3,
         currentLevel: this.lvl("armor"),
         apply: () => {
-          this.stats.maxHp += 30;
           this.levels.armor++;
         },
       },
       {
         id: "phaseMastery",
         name: "Phase Mastery",
-        description: "Reduce world switch cooldown by 0.5s",
-        cost: 25 + this.lvl("phaseMastery") * 20,
-        maxLevel: 2,
+        description: `Switch dimensions faster, longer surges\nCD ${(4.0 - this.lvl("phaseMastery") * 0.6).toFixed(1)}s→${(4.0 - (this.lvl("phaseMastery") + 1) * 0.6).toFixed(1)}s | Surge +0.5s`,
+        cost: 22 + this.lvl("phaseMastery") * 15,
+        maxLevel: 3,
         currentLevel: this.lvl("phaseMastery"),
         apply: () => {
           this.levels.phaseMastery++;
         },
       },
       {
-        id: "rapidFire",
-        name: "Rapid Fire",
-        description: "Fire rate +15%",
-        cost: 18 + this.lvl("rapidFire") * 12,
+        id: "pickupRange",
+        name: "Magnet Array",
+        description: `Collect scrap from further away\nRange +50px (${this.stats.pickupRange}→${this.stats.pickupRange + 50})`,
+        cost: 8 + this.lvl("pickupRange") * 5,
         maxLevel: 3,
-        currentLevel: this.lvl("rapidFire"),
+        currentLevel: this.lvl("pickupRange"),
         apply: () => {
-          this.stats.fireRate = Math.max(MIN_FIRE_RATE, this.stats.fireRate - 40);
-          this.levels.rapidFire++;
+          this.stats.pickupRange += 50;
+          this.levels.pickupRange++;
         },
       },
-      // ─── Room Access Cards ───────────────────────────────────
+      // ─── Specialty Upgrades ───────────────────────────────────
       {
         id: "riftsync",
         name: "Rift Sync",
-        description: "Each bullet echoes a ghost shot (40% dmg, alternate phase)",
-        cost: 30,
+        description: "Bullets hit both dimensions\nGhost echo at 40% dmg in alternate phase",
+        cost: 28,
         maxLevel: 1,
+        minWave: 3,
         currentLevel: this.lvl("riftsync"),
         apply: () => { this.levels["riftsync"]++; },
       },
       {
         id: "mirror_plating",
         name: "Mirror Plating",
-        description: "Scrap Shield reflects bullets back to nearest enemy",
-        cost: 35,
+        description: "Turn enemy fire against them\nReflect projectiles back at full damage",
+        cost: 32,
         maxLevel: 1,
+        minWave: 5,
         currentLevel: this.lvl("mirror_plating"),
         apply: () => { this.levels["mirror_plating"]++; },
-      },
-      {
-        id: "card_factory",
-        name: "Bio Lab Access Card",
-        description: "Unlocks the Bio Lab sector. Permanently disables the bio-barrier.",
-        cost: 20,
-        maxLevel: 1,
-        currentLevel: this.lvl("card_factory"),
-        apply: () => {
-          this.unlockedThemes.add("factory");
-          this.levels.card_factory++;
-        },
-      },
-      {
-        id: "card_server",
-        name: "Data Lab Access Card",
-        description: "Unlocks the Data Lab sector. Disables the data-barrier.",
-        cost: 20,
-        maxLevel: 1,
-        currentLevel: this.lvl("card_server"),
-        apply: () => {
-          this.unlockedThemes.add("server");
-          this.levels.card_server++;
-        },
-      },
-      {
-        id: "card_power",
-        name: "Reactor Core Access Card",
-        description: "Unlocks the Reactor Core sector. High-risk, high-reward zone.",
-        cost: 25,
-        maxLevel: 1,
-        currentLevel: this.lvl("card_power"),
-        apply: () => {
-          this.unlockedThemes.add("power");
-          this.levels.card_power++;
-        },
-      },
-      {
-        id: "card_control",
-        name: "Cmd Center Access Card",
-        description: "Unlocks the Command Center sector.",
-        cost: 25,
-        maxLevel: 1,
-        currentLevel: this.lvl("card_control"),
-        apply: () => {
-          this.unlockedThemes.add("control");
-          this.levels.card_control++;
-        },
-      },
-      {
-        id: "card_maintenance",
-        name: "Supply Depot Access Card",
-        description: "Unlocks the Supply Depot sector.",
-        cost: 15,
-        maxLevel: 1,
-        currentLevel: this.lvl("card_maintenance"),
-        apply: () => {
-          this.unlockedThemes.add("maintenance");
-          this.levels.card_maintenance++;
-        },
-      },
-      {
-        id: "card_armory",
-        name: "Armory Access Card",
-        description: "Unlocks the Armory — faster bullets and combat drills. High-intensity zone.",
-        cost: 20,
-        maxLevel: 1,
-        currentLevel: this.lvl("card_armory"),
-        apply: () => {
-          this.unlockedThemes.add("armory");
-          this.levels.card_armory++;
-        },
-      },
-      {
-        id: "card_quarantine",
-        name: "Quarantine Access Card",
-        description: "Unlocks the Quarantine Zone — toxic fog, hazardous floor. Proceed with caution.",
-        cost: 25,
-        maxLevel: 1,
-        currentLevel: this.lvl("card_quarantine"),
-        apply: () => {
-          this.unlockedThemes.add("quarantine");
-          this.levels.card_quarantine++;
-        },
-      },
-      {
-        id: "card_vault",
-        name: "Secure Vault Access Card",
-        description: "Unlocks the Secure Vault — slow bullets, elite guards, high-value loot.",
-        cost: 35,
-        maxLevel: 1,
-        currentLevel: this.lvl("card_vault"),
-        apply: () => {
-          this.unlockedThemes.add("vault");
-          this.levels.card_vault++;
-        },
       },
     ];
   }
@@ -339,6 +268,42 @@ export class UpgradeSystem {
 
   get armorLevel(): number {
     return this.levels["armor"] ?? 0;
+  }
+
+  get thermalRegLevel(): number { return this.levels["thermalReg"] ?? 0; }
+
+  get hullLevel(): number { return this.levels["maxHp"] ?? 0; }
+
+  get speedLevel(): number { return this.levels["speed"] ?? 0; }
+
+  /** Extra heat per shot from Caliber and Multi-Shot upgrades. */
+  get heatPenalty(): number {
+    return (this.levels["damage"] ?? 0) * 2 + (this.levels["multiShot"] ?? 0) * 3;
+  }
+
+  /** Extra heat dissipation/sec from Thermal Regulator. */
+  get bonusCooling(): number {
+    return (this.levels["thermalReg"] ?? 0) * 8;
+  }
+
+  /** Overheat duration reduction (ms) from Thermal Regulator. */
+  get overheatReduction(): number {
+    return (this.levels["thermalReg"] ?? 0) * 300;
+  }
+
+  /** Phase Surge duration bonus (ms) from Phase Mastery. */
+  get phaseSurgeBonus(): number {
+    return (this.levels["phaseMastery"] ?? 0) * 500;
+  }
+
+  /** Dash force multiplier from Thruster Boost. */
+  get dashForceMult(): number {
+    return 1 + (this.levels["speed"] ?? 0) * 0.12;
+  }
+
+  /** Kill regen bonus from Hull Reinforcement. */
+  get killRegenBonus(): number {
+    return (this.levels["maxHp"] ?? 0);
   }
 
   get riftsyncLevel(): number { return this.levels["riftsync"] ?? 0; }

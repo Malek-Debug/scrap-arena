@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { UI_MONO } from "../rendering/UITheme";
 
 export type PowerUpType =
   | "rapid_fire"
@@ -17,6 +18,15 @@ interface Drop {
   lifetime: number;
   collected: boolean;
 }
+
+/** Authoritative gameplay durations for each timed power-up (ms). */
+export const POWER_UP_DURATIONS: Partial<Record<PowerUpType, number>> = {
+  rapid_fire:   7000,
+  scrap_magnet: 7000,
+  damage_boost: 7000,
+  speed_boost:  7000,
+  // shield_regen is instant — no duration entry
+};
 
 const DROP_LABELS: Record<PowerUpType, string> = {
   rapid_fire:   "⚡",
@@ -39,8 +49,6 @@ const DROP_NAMES: Record<PowerUpType, string> = {
   damage_boost: "DAMAGE x2",
   speed_boost:  "SPEED BOOST",
 };
-
-const DROP_TYPES: PowerUpType[] = ["rapid_fire", "shield_regen", "scrap_magnet", "damage_boost", "speed_boost"];
 
 export class PowerUpSystem {
   private drops: Drop[] = [];
@@ -75,7 +83,7 @@ export class PowerUpSystem {
     sprite.setStrokeStyle(2, 0xffffff, 0.6);
 
     const label = this.scene.add.text(x, y - 16, DROP_LABELS[type], {
-      fontFamily: "monospace", fontSize: "11px", color: "#ffffff",
+      fontFamily: UI_MONO, fontSize: "11px", color: "#ffffff",
     }).setOrigin(0.5).setDepth(46);
 
     this.scene.tweens.add({
@@ -102,6 +110,35 @@ export class PowerUpSystem {
       }
     }
     return null;
+  }
+
+  /**
+   * Activate a timed power-up.  Sets the internal timer (used by update() and
+   * visible to the HUD) and returns the authoritative duration in ms so that
+   * callers can schedule revert callbacks without owning the duration value.
+   *
+   * Instant power-ups (shield_regen) have no duration entry and return 0.
+   * Collecting the same type again refreshes the timer (no stacking).
+   */
+  activate(type: PowerUpType): number {
+    const duration = POWER_UP_DURATIONS[type] ?? 0;
+    switch (type) {
+      case "rapid_fire":
+        this.rapidFireActive = true;
+        this.rapidFireTimer = duration;
+        break;
+      case "damage_boost":
+        this.damageBoostActive = true;
+        this.damageBoostTimer = duration;
+        break;
+      case "speed_boost":
+        this.speedBoostActive = true;
+        this.speedBoostTimer = duration;
+        break;
+      // scrap_magnet and shield_regen have no active-flag in PowerUpSystem;
+      // their state is fully owned by MainScene (vortex flag / instant HP heal).
+    }
+    return duration;
   }
 
   getPickupName(type: PowerUpType): string {
@@ -143,8 +180,8 @@ export class PowerUpSystem {
   clearAll(): void {
     for (const d of this.drops) { d.sprite.destroy(); d.label.destroy(); }
     this.drops = [];
-    this.rapidFireActive = false;
-    this.damageBoostActive = false;
-    this.speedBoostActive = false;
+    this.rapidFireActive  = false;  this.rapidFireTimer   = 0;
+    this.damageBoostActive = false; this.damageBoostTimer  = 0;
+    this.speedBoostActive  = false; this.speedBoostTimer   = 0;
   }
 }

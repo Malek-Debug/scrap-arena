@@ -56,7 +56,7 @@ export class WeaponVisual {
     }
   }
 
-  /** Called when player fires — shows firing sprite briefly */
+  /** Called when player fires — shows firing sprite + recoil kick */
   fire(): void {
     const fireKey = `gun_${this.currentTier}_fire`;
     if (this.scene.textures.exists(fireKey)) {
@@ -66,6 +66,11 @@ export class WeaponVisual {
       );
     }
     this.fireTimer = 80;
+
+    // Instant recoil offset — update() snaps gun back next frame naturally
+    const angle = this.gunSprite.rotation;
+    this.gunSprite.x -= Math.cos(angle) * 5;
+    this.gunSprite.y -= Math.sin(angle) * 5;
   }
 
   /** Set weapon tier (1-5 maps to gun models 1,3,5,8,10) */
@@ -95,6 +100,36 @@ export class WeaponVisual {
       (this.gunSprite.texture as Phaser.Textures.Texture).setFilter(
         Phaser.Textures.FilterMode.NEAREST,
       );
+    }
+  }
+
+  /** Returns the world position of the weapon muzzle tip (barrel end). */
+  getMuzzlePosition(aimAngle: number): { x: number; y: number } {
+    const tierIdx = WeaponVisual.TIERS.indexOf(this.currentTier);
+    const scale = WeaponVisual.SCALE[tierIdx] ?? 4;
+    // Gun origin is 0.2 from left, so barrel tip is 0.8 * sprite width from pivot
+    const barrelLength = 8 * scale * 0.8; // 8px base sprite width
+    return {
+      x: this.gunSprite.x + Math.cos(aimAngle) * barrelLength,
+      y: this.gunSprite.y + Math.sin(aimAngle) * barrelLength,
+    };
+  }
+
+  /** Returns the current aim angle stored from the last update(). */
+  get lastAimAngle(): number {
+    return this.gunSprite.rotation;
+  }
+
+  /** Apply heat tint to gun sprite. ratio 0–1; above 0.75 glows red-orange. */
+  setHeatTint(ratio: number): void {
+    if (ratio >= 0.75) {
+      const t = (ratio - 0.75) / 0.25;
+      const r = 255;
+      const g = Math.round(120 - t * 90);
+      const b = 0;
+      this.gunSprite.setTint(Phaser.Display.Color.GetColor(r, g, b));
+    } else {
+      this.gunSprite.clearTint();
     }
   }
 

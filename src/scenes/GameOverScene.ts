@@ -4,6 +4,8 @@ import { AudioManager } from "../audio/AudioManager";
 import { WalletManager } from "../web3/WalletManager";
 import { SecureStore } from "../core/SecureStore";
 import { IntegrityGuard } from "../core/IntegrityGuard";
+import { UI_FONT, UI_MONO, UI_ORBITRON, constrainTextBlock, drawPanel, fitTextWidth } from "../rendering/UITheme";
+import { calculateRunScore, calculateRunGrade } from "../core/RunGrading";
 
 const C_RED    = 0xff2200;
 const C_ORANGE = 0xff5500;
@@ -12,7 +14,6 @@ const H_RED    = "#ff2200";
 const H_ORANGE = "#ff5500";
 const H_AMBER  = "#ff8800";
 const H_DIM    = "#661100";
-const H_WHITE  = "#ffffff";
 
 export class GameOverScene extends Phaser.Scene {
   private scanlineGfx!: Phaser.GameObjects.Graphics;
@@ -25,15 +26,23 @@ export class GameOverScene extends Phaser.Scene {
   create(): void {
     this.restarting = false;
     this.scanlineOffset = 0;
+    this.input.enabled = true;
+    this.cameras.main.resetFX();
+    this.cameras.main.setAlpha(1);
 
     const data = (this.scene.settings.data ?? {}) as {
-      kills?: number; wave?: number; scrap?: number; score?: number; maxCombo?: number;
+      kills?: number; wave?: number; scrap?: number; score?: number; maxCombo?: number; maxStreak?: number; deathCause?: "player" | "reactor"; timePlayed?: number;
     };
-    const kills    = data.kills    ?? 0;
-    const wave     = data.wave     ?? 0;
-    const scrap    = data.scrap    ?? 0;
-    const score    = data.score    ?? 0;
-    const maxCombo = data.maxCombo ?? 0;
+    const kills      = data.kills      ?? 0;
+    const wave       = data.wave       ?? 0;
+    const scrap      = data.scrap      ?? 0;
+    const combatScore = data.score     ?? 0;
+    const maxCombo   = data.maxCombo   ?? 0;
+    const maxStreak  = data.maxStreak  ?? 0;
+    const deathCause = data.deathCause ?? "player";
+    const timePlayed = data.timePlayed ?? 0;
+
+    const score = calculateRunScore({ combatScore, kills, wave, maxCombo, maxStreak, completed: false });
 
     const cx = GAME_WIDTH / 2;
     const cy = GAME_HEIGHT / 2;
@@ -54,7 +63,7 @@ export class GameOverScene extends Phaser.Scene {
 
     // YouTube Playables: submit score
     if (typeof ytgame !== "undefined") {
-      ytgame.engagement.sendScore({ value: score });
+      ytgame.engagement?.sendScore?.({ value: score });
     }
 
     // Ethereum: sign score if wallet connected
@@ -63,13 +72,8 @@ export class GameOverScene extends Phaser.Scene {
     }
 
     // Grade
-    const gradeScore = score + wave * 500 + kills * 20 + maxCombo * 100;
-    let grade: string, gradeColor: number, gradeHex: string;
-    if      (gradeScore >= 20000) { grade = "S"; gradeColor = 0xffdd00; gradeHex = "#ffdd00"; }
-    else if (gradeScore >= 10000) { grade = "A"; gradeColor = 0xff8800; gradeHex = "#ff8800"; }
-    else if (gradeScore >= 5000)  { grade = "B"; gradeColor = 0xff5500; gradeHex = "#ff5500"; }
-    else if (gradeScore >= 2000)  { grade = "C"; gradeColor = 0xff2200; gradeHex = "#ff2200"; }
-    else                          { grade = "D"; gradeColor = 0x882200; gradeHex = "#882200"; }
+    const { grade, gradeColor } = calculateRunGrade(score);
+    const gradeHex = `#${gradeColor.toString(16).padStart(6, "0")}`;
 
     // Screen shake
     this.cameras.main.shake(500, 0.025);
@@ -125,24 +129,27 @@ export class GameOverScene extends Phaser.Scene {
     for (let i = 0; i < 28; i++) this.time.delayedCall(i * 80, () => this._spawnDebris());
 
     // ── 7. Title with glitch ──
-    const titleY = 68;
+    const titleY = 74;
     const titleGlow = this.add.graphics().setAlpha(0);
-    titleGlow.fillStyle(0xff2200, 0.06);
-    titleGlow.fillCircle(cx, titleY, 260);
+    titleGlow.fillStyle(0xff2200, 0.075);
+    titleGlow.fillCircle(cx, titleY, 310);
     this.tweens.add({ targets: titleGlow, alpha: 1, duration: 800, delay: 100 });
 
     const titleGhost = this.add.text(cx + 5, titleY + 3, "SYSTEM FAILURE", {
-      fontFamily: "monospace", fontSize: "58px", color: "#3a0000", fontStyle: "bold",
+      fontFamily: UI_ORBITRON, fontSize: "56px", color: "#3a0000", fontStyle: "bold",
     }).setOrigin(0.5).setAlpha(0);
 
     const title = this.add.text(cx, titleY, "SYSTEM FAILURE", {
-      fontFamily: "monospace", fontSize: "58px", color: H_RED, fontStyle: "bold",
+      fontFamily: UI_ORBITRON, fontSize: "56px", color: H_RED, fontStyle: "bold",
       stroke: "#000000", strokeThickness: 8,
       shadow: { offsetX: 0, offsetY: 0, color: "#ff2200", blur: 22, fill: true },
     }).setOrigin(0.5).setAlpha(0);
 
-    const subtitleText = this.add.text(cx, titleY + 58, "//  M A C H I N E   D E S T R O Y E D  //", {
-      fontFamily: "monospace", fontSize: "12px", color: H_DIM,
+    const deathMsg = deathCause === "reactor"
+      ? "FRACTURE STATION DESTROYED  //  REACTOR OFFLINE"
+      : "MACHINE DESTROYED  //  SIGNAL LOST";
+    const subtitleText = this.add.text(cx, titleY + 58, deathMsg, {
+      fontFamily: UI_MONO, fontSize: "12px", color: "#bb3a16",
     }).setOrigin(0.5).setAlpha(0);
 
     this._glitchIn(title, 120, () => {
@@ -160,41 +167,41 @@ export class GameOverScene extends Phaser.Scene {
     });
 
     // ── 8. Stats panel ──
-    const panelX = cx - 320, panelY = 140, panelW = 520, panelH = 230;
+    const panelX = cx - 430, panelY = 158, panelW = 560, panelH = 358;
 
     const panelGfx = this.add.graphics().setAlpha(0);
-    panelGfx.fillStyle(0x0d0000, 0.92);
-    panelGfx.fillRoundedRect(panelX, panelY, panelW, panelH, 4);
-    panelGfx.lineStyle(2, C_RED, 0.7);
-    panelGfx.strokeRoundedRect(panelX, panelY, panelW, panelH, 4);
-    panelGfx.lineStyle(1, C_ORANGE, 0.2);
-    panelGfx.strokeRoundedRect(panelX + 4, panelY + 4, panelW - 8, panelH - 8, 2);
-    const cL = 12;
-    panelGfx.lineStyle(3, C_ORANGE, 1);
-    [[panelX, panelY], [panelX + panelW - cL, panelY], [panelX, panelY + panelH - cL], [panelX + panelW - cL, panelY + panelH - cL]]
-      .forEach(([bx, by]) => panelGfx.strokeRect(bx, by, cL, cL));
+    drawPanel(panelGfx, panelX, panelY, panelW, panelH, C_RED, 0x080306, 0.94, 8);
+    panelGfx.fillStyle(0xff2200, 0.055);
+    panelGfx.fillRect(panelX + 1, panelY + 1, panelW - 2, 48);
     this.tweens.add({ targets: panelGfx, alpha: 1, duration: 280, delay: 400 });
 
-    const panelHeader = this.add.text(cx, panelY + 16, "── COMBAT LOG ──", {
-      fontFamily: "monospace", fontSize: "12px", color: H_ORANGE,
+    const panelHeader = this.add.text(panelX + 24, panelY + 24, "COMBAT LOG", {
+      fontFamily: UI_FONT, fontSize: "13px", color: "#ff7a28", fontStyle: "bold",
     }).setOrigin(0.5).setAlpha(0);
+    panelHeader.setOrigin(0, 0.5);
     this.tweens.add({ targets: panelHeader, alpha: 1, duration: 200, delay: 460 });
 
+    const streakColor = maxStreak >= 12 ? "#ff00ff" : maxStreak >= 8 ? "#ff4400" : maxStreak >= 5 ? "#ff8800" : maxStreak >= 3 ? "#ffcc00" : H_ORANGE;
+    const deathCauseLabel = deathCause === "reactor" ? "REACTOR DESTROYED" : "COMBAT CASUALTY";
+    const deathCauseColor = deathCause === "reactor" ? "#ff6600" : H_RED;
     const statDefs: { label: string; value: string; col: string; big?: boolean; isScore?: boolean; targetNum?: number }[] = [
-      { label: "SCORE",          value: `0`,            col: H_AMBER,  big: true, isScore: true, targetNum: score },
-      { label: "WAVES SURVIVED", value: `${wave}`,      col: H_ORANGE },
+      { label: "SCORE",          value: `0`,               col: H_AMBER,  big: true, isScore: true, targetNum: score },
+      { label: "CAUSE OF DEATH", value: deathCauseLabel,   col: deathCauseColor },
+      { label: "WAVES SURVIVED", value: `${wave}`,         col: H_ORANGE },
       { label: "KILLS",          value: `${kills}`,     col: H_ORANGE },
       { label: "SCRAP",          value: `${scrap}`,     col: H_ORANGE },
       { label: "BEST COMBO",     value: `${maxCombo}x`, col: maxCombo >= 10 ? "#ffdd00" : H_ORANGE },
+      { label: "BEST STREAK",    value: `${maxStreak}`, col: streakColor },
+      { label: "TIME",            value: `${Math.floor(timePlayed / 60)}:${(timePlayed % 60).toString().padStart(2, '0')}`, col: H_ORANGE },
     ];
 
-    const lh = 36, sy = panelY + 40, lx = panelX + 22, vx = panelX + panelW - 22;
+    const lh = 38, sy = panelY + 72, lx = panelX + 28, vx = panelX + panelW - 28;
     statDefs.forEach((s, i) => {
       const y = sy + i * lh;
       const delay = 520 + i * 140;
-      const lbl = this.add.text(lx - 20, y, s.label, { fontFamily: "monospace", fontSize: "13px", color: "#993300" }).setOrigin(0, 0.5).setAlpha(0);
+      const lbl = this.add.text(lx - 20, y, s.label, { fontFamily: UI_FONT, fontSize: "13px", color: "#d15b22" }).setOrigin(0, 0.5).setAlpha(0);
       const val = this.add.text(vx + 20, y, s.value, {
-        fontFamily: "monospace", fontSize: s.big ? "20px" : "16px", color: s.col, fontStyle: s.big ? "bold" : "normal",
+        fontFamily: UI_MONO, fontSize: s.big ? "22px" : "16px", color: s.col, fontStyle: "bold",
       }).setOrigin(1, 0.5).setAlpha(0);
       const sep = this.add.graphics().setAlpha(0);
       sep.lineStyle(1, C_RED, 0.15); sep.lineBetween(lx, y + 15, vx, y + 15);
@@ -212,15 +219,15 @@ export class GameOverScene extends Phaser.Scene {
     });
 
     // Best score + new record
-    const bestY = panelY + panelH - 18;
-    const bestText = this.add.text(panelX + 22, bestY, `BEST: ${top3[0]?.score ?? 0}`, {
-      fontFamily: "monospace", fontSize: "12px", color: "#993300",
+    const bestY = panelY + panelH - 24;
+    const bestText = this.add.text(panelX + 28, bestY, `BEST RUN  ${top3[0]?.score ?? 0}`, {
+      fontFamily: UI_MONO, fontSize: "12px", color: "#d15b22",
     }).setOrigin(0, 0.5).setAlpha(0);
     this.tweens.add({ targets: bestText, alpha: 0.8, duration: 200, delay: 1000 });
 
     if (isNewRecord) {
-      const nrText = this.add.text(panelX + panelW - 22, bestY, "★ NEW RECORD ★", {
-        fontFamily: "monospace", fontSize: "14px", color: "#ffdd00", fontStyle: "bold",
+      const nrText = this.add.text(panelX + panelW - 28, bestY, "NEW RECORD", {
+        fontFamily: UI_FONT, fontSize: "14px", color: "#ffdd00", fontStyle: "bold",
         stroke: "#000000", strokeThickness: 3,
       }).setOrigin(1, 0.5).setAlpha(0);
       this.tweens.add({
@@ -230,8 +237,15 @@ export class GameOverScene extends Phaser.Scene {
     }
 
     // ── 9. Grade badge — placed outside the stats panel to the right ──
-    const badgeR = 75;
-    const badgeX = panelX + panelW + badgeR + 30, badgeY = panelY + panelH / 2 + 10;
+    const badgeCardX = panelX + panelW + 28;
+    const badgeCardY = panelY;
+    const badgeCardW = 270;
+    const badgeCardH = panelH;
+    const badgePanel = this.add.graphics().setAlpha(0);
+    drawPanel(badgePanel, badgeCardX, badgeCardY, badgeCardW, badgeCardH, gradeColor, 0x090306, 0.90, 8);
+    this.tweens.add({ targets: badgePanel, alpha: 1, duration: 280, delay: 560 });
+    const badgeR = 76;
+    const badgeX = badgeCardX + badgeCardW / 2, badgeY = badgeCardY + 128;
     const glowGfx = this.add.graphics().setAlpha(0).setScale(0.2);
     glowGfx.lineStyle(2, gradeColor, 0.15); glowGfx.strokeCircle(badgeX, badgeY, badgeR + 36);
     glowGfx.lineStyle(2, gradeColor, 0.3); glowGfx.strokeCircle(badgeX, badgeY, badgeR + 20);
@@ -243,12 +257,12 @@ export class GameOverScene extends Phaser.Scene {
     badgeGfx.lineStyle(1, gradeColor, 0.25); badgeGfx.strokeCircle(badgeX, badgeY, badgeR - 10);
 
     const gradeLetter = this.add.text(badgeX, badgeY, grade, {
-      fontFamily: "monospace", fontSize: "86px", color: gradeHex, fontStyle: "bold",
+      fontFamily: UI_FONT, fontSize: "86px", color: gradeHex, fontStyle: "bold",
       stroke: "#000000", strokeThickness: 8,
     }).setOrigin(0.5).setAlpha(0).setScale(0.2);
 
-    const gradeLabel = this.add.text(badgeX, badgeY + badgeR + 18, "PERFORMANCE", {
-      fontFamily: "monospace", fontSize: "10px", color: H_DIM,
+    const gradeLabel = this.add.text(badgeX, badgeY + badgeR + 22, "PERFORMANCE GRADE", {
+      fontFamily: UI_FONT, fontSize: "11px", color: "#d15b22",
     }).setOrigin(0.5).setAlpha(0);
 
     this.tweens.add({
@@ -266,9 +280,9 @@ export class GameOverScene extends Phaser.Scene {
     });
 
     // ── 10. Buttons ──
-    const btnY = GAME_HEIGHT - 100;
-    this._buildButton(cx - 190, btnY, "▶  RETRY", C_RED, H_RED, "#ff8888", 600, () => this._retry());
-    this._buildButton(cx + 190, btnY, "⌂  MAIN MENU", C_ORANGE, H_ORANGE, "#ffcc88", 750, () => this._mainMenu());
+    const btnY = 542;
+    this._buildButton(cx - 190, btnY, "RETRY", C_RED, H_RED, "#ffb0a0", 600, () => this._retry());
+    this._buildButton(cx + 190, btnY, "MAIN MENU", C_ORANGE, H_ORANGE, "#ffcc88", 750, () => this._mainMenu());
 
     // Wallet sign score (Ethereum challenge)
     this._buildWalletSignButton(cx, btnY + 50, score, wave);
@@ -276,7 +290,7 @@ export class GameOverScene extends Phaser.Scene {
     // ── TAINTED watermark (anti-cheat: only shown if integrity flag tripped) ──
     if (IntegrityGuard.instance.isTainted) {
       const tainted = this.add.text(cx, panelY + panelH + 38, "⚠  RUN  TAINTED  ⚠", {
-        fontFamily: "monospace", fontSize: "12px", color: "#ff3300", fontStyle: "bold",
+        fontFamily: UI_FONT, fontSize: "12px", color: "#ff3300", fontStyle: "bold",
         stroke: "#000000", strokeThickness: 3,
       }).setOrigin(0.5).setAlpha(0).setDepth(50);
       this.tweens.add({ targets: tainted, alpha: 0.85, duration: 400, delay: 1500 });
@@ -291,20 +305,20 @@ export class GameOverScene extends Phaser.Scene {
     barGfx.lineBetween(0, GAME_HEIGHT - 34, GAME_WIDTH, GAME_HEIGHT - 34);
 
     this.add.text(36, GAME_HEIGHT - 17, "[ SPACE ] RETRY   [ ESC ] MAIN MENU", {
-      fontFamily: "monospace", fontSize: "11px", color: H_DIM,
+      fontFamily: UI_MONO, fontSize: "11px", color: H_DIM,
     }).setOrigin(0, 0.5).setDepth(6);
     this.add.text(GAME_WIDTH - 36, GAME_HEIGHT - 17, "SCRAP ARENA  //  GAME OVER", {
-      fontFamily: "monospace", fontSize: "11px", color: "#440000",
+      fontFamily: UI_MONO, fontSize: "11px", color: "#440000",
     }).setOrigin(1, 0.5).setDepth(6);
 
     // Keyboard shortcuts (delayed)
     this.time.delayedCall(700, () => {
-      this.input.keyboard?.on("keydown-SPACE", () => this._retry(), this);
-      this.input.keyboard?.on("keydown-ESC", () => this._mainMenu(), this);
+      this.input.keyboard?.on("keydown-SPACE", this._retry, this);
+      this.input.keyboard?.on("keydown-ESC", this._mainMenu, this);
     });
 
     // Cleanup on shutdown
-    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => { this.scanlineTimer?.destroy(); });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this._cleanupScene());
   }
 
   private _redrawScanlines(): void {
@@ -334,8 +348,9 @@ export class GameOverScene extends Phaser.Scene {
     const bg = this.add.graphics().setDepth(10);
     const txt = this.add.text(x, y,
       wallet.isConnected ? "⬡  SIGN SCORE ON-CHAIN" : "⬡  CONNECT & SIGN SCORE",
-      { fontFamily: "monospace", fontSize: "12px", color: wallet.isConnected ? "#00ff88" : "#ff8800" }
+      { fontFamily: UI_FONT, fontSize: "12px", color: wallet.isConnected ? "#00ff88" : "#ff8800" }
     ).setOrigin(0.5).setDepth(11);
+    constrainTextBlock(txt, 260, 1, 10);
 
     const draw = (hover: boolean, done: boolean) => {
       bg.clear();
@@ -366,29 +381,33 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   private _buildButton(x: number, y: number, label: string, borderCol: number, borderHex: string, hoverHex: string, delay: number, onClick: () => void): void {
-    const W = label.length * 14 + 64, H = 48;
+    const W = 260, H = 54;
     const bg = this.add.graphics().setAlpha(0).setDepth(10);
     const drawBg = (hover: boolean): void => {
       bg.clear();
-      bg.fillStyle(hover ? borderCol : 0x160000, hover ? 0.25 : 0.92);
-      bg.fillRoundedRect(x - W / 2, y - H / 2, W, H, 4);
-      bg.lineStyle(2, borderCol, hover ? 1 : 0.7);
-      bg.strokeRoundedRect(x - W / 2, y - H / 2, W, H, 4);
-      const ct = 8;
-      bg.lineStyle(2, borderCol, 1);
-      [[x - W / 2, y - H / 2], [x + W / 2 - ct, y - H / 2], [x - W / 2, y + H / 2 - ct], [x + W / 2 - ct, y + H / 2 - ct]]
-        .forEach(([bx, by]) => bg.strokeRect(bx, by, ct, ct));
+      bg.fillStyle(hover ? borderCol : 0x130406, hover ? 0.30 : 0.86);
+      bg.fillRoundedRect(x - W / 2, y - H / 2, W, H, 8);
+      bg.lineStyle(2, hover ? 0xffffff : borderCol, hover ? 0.92 : 0.68);
+      bg.strokeRoundedRect(x - W / 2, y - H / 2, W, H, 8);
+      bg.lineStyle(1, borderCol, hover ? 0.48 : 0.20);
+      bg.lineBetween(x - W / 2 + 22, y, x - 58, y);
+      bg.lineBetween(x + 58, y, x + W / 2 - 22, y);
     };
     drawBg(false);
 
     const txt = this.add.text(x, y, label, {
-      fontFamily: "monospace", fontSize: "18px", color: borderHex, fontStyle: "bold",
+      fontFamily: UI_FONT, fontSize: "18px", color: borderHex, fontStyle: "bold",
     }).setOrigin(0.5).setAlpha(0).setDepth(11);
+    fitTextWidth(txt, W - 24, 12);
 
     const hit = this.add.zone(x, y, W, H).setInteractive({ useHandCursor: true }).setDepth(12).setScrollFactor(0);
     hit.on("pointerover", () => { drawBg(true); txt.setColor(hoverHex); });
     hit.on("pointerout", () => { drawBg(false); txt.setColor(borderHex); });
-    hit.on("pointerdown", onClick);
+    hit.on("pointerdown", () => {
+      hit.disableInteractive();
+      txt.setColor(hoverHex);
+      onClick();
+    });
 
     this.tweens.add({ targets: [bg, txt], alpha: 1, duration: 250, delay });
   }
@@ -410,36 +429,38 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   private _retry(): void {
-    if (this.restarting) return;
-    this.restarting = true;
-    this.cameras.main.shake(180, 0.012);
-    this.cameras.main.fadeOut(400, 0, 0, 0);
-    let switched = false;
-    const go = (): void => {
-      if (switched) return;
-      switched = true;
-      this.scene.start("MainScene");
-    };
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      go();
-    });
-    this.time.delayedCall(650, go);
+    this._transitionTo("MainScene");
   }
 
   private _mainMenu(): void {
+    this._transitionTo("TitleScene");
+  }
+
+  private _transitionTo(sceneKey: "MainScene" | "TitleScene"): void {
     if (this.restarting) return;
     this.restarting = true;
-    this.cameras.main.shake(180, 0.012);
-    this.cameras.main.fadeOut(400, 0, 0, 0);
+    this.input.enabled = false;
+    this._cleanupScene();
+    AudioManager.instance.stopMusic();
+
+    const camera = this.cameras.main;
+    camera.resetFX();
+
     let switched = false;
     const go = (): void => {
       if (switched) return;
       switched = true;
-      this.scene.start("TitleScene");
+      camera.resetFX();
+      this.scene.start(sceneKey);
     };
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      go();
-    });
-    this.time.delayedCall(650, go);
+    this.time.delayedCall(30, go);
+    window.setTimeout(go, 180);
+  }
+
+  private _cleanupScene(): void {
+    this.scanlineTimer?.destroy();
+    this.scanlineTimer = undefined;
+    this.input.keyboard?.off("keydown-SPACE", this._retry, this);
+    this.input.keyboard?.off("keydown-ESC", this._mainMenu, this);
   }
 }
