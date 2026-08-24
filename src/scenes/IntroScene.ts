@@ -275,7 +275,7 @@ export class IntroScene extends Phaser.Scene {
     try { sessionStorage.setItem("scrapArenaIntroDone", "1"); } catch { /* ok */ }
     this.cameras.main.fadeOut(1100, 0, 0, 0);
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
-      this.scene.start("MainScene"));
+      this.scene.start("TitleScene"));
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -837,6 +837,6 @@ export class IntroScene extends Phaser.Scene {
     AudioManager.instance.stopMusic();
     this.cameras.main.fadeOut(380, 0, 0, 0);
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
-      this.scene.start("MainScene"));
+      this.scene.start("TitleScene"));
   }
 }

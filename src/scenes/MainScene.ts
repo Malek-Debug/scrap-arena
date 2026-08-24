@@ -1533,7 +1533,7 @@ export class MainScene extends Phaser.Scene {
         fontFamily: UI_FONT, fontSize: "17px", color: btn.hex, fontStyle: "bold",
       }).setOrigin(0, 0.5);
 
-      const hit = this.add.zone(BTN_X, by + BTN_H / 2, BTN_W, BTN_H).setInteractive({ useHandCursor: true });
+      const hit = this.add.zone(BTN_X, by + BTN_H / 2, BTN_W, BTN_H).setScrollFactor(0).setInteractive({ useHandCursor: true });
       hit.on("pointerover", () => {
         drawBtn(true);
         iconTxt.setAlpha(1);
